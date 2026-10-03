@@ -34,12 +34,18 @@ failures are auto-fixed too - not just reported:
 |-----------|-------|----------------|
 | Base-shear equilibrium | ≤ 5 % | element-summed base reactions match applied V (model integrity) |
 | Inter-story drift index | ≤ 0.004 | independent drift cross-check vs the hand portal model |
-| Beam moment utilisation | ≤ 1.0 | 1.5 × elastic end moments vs `0.136 fck b d²` |
-| Column P-M interaction | ≤ 1.0 | `P/cap + max(My/μy, Mz/μz)` on every column |
+| Beam moment utilisation | ≤ 1.0 | governing **LC1/LC2/LC3** factored end moments vs `0.136 fck b d²` |
+| Column P-M interaction | ≤ 1.0 | `P/cap + max(My/μy, Mz/μz)` on every column, worst combo governs |
 
-- Load cases per design: **G** (service gravity, one-way slab → X-beam
-  work-equivalent nodal loads), **Ex** and **Ey** (IS 1893 equivalent-static
-  storey forces) - each on a fresh wiped model
+- Load cases per design: **D** (service dead) and **L** (service live,
+  one-way slab → X-beam work-equivalent nodal loads), **Ex** and **Ey**
+  (IS 1893 equivalent-static storey forces) - each on a fresh wiped model
+- Member forces are combined with the **explicit IS 456 / IS 1893 load
+  combinations** - LC1 `1.5(D+L)`, LC2 `1.2(D+L+EQ)` evaluated per EQ
+  direction, LC3 `0.9D + 1.2EQ` - the worst combo governs each member
+  (never a fixed `1.5 × service` envelope)
+- Equilibrium is checked both ways: lateral base reaction vs applied V
+  **and** vertical dead reaction vs applied ΣD
 - Optimiser escalates on FEA failure: deeper beams → column size ladder →
   shear-wall core (rc_dual) → honest advisory when ladders are exhausted
 - Engine quirks handled: `Umfpack`+`RCM` solver, no `ops.remove('load')`,
@@ -49,6 +55,25 @@ failures are auto-fixed too - not just reported:
   (12 000 nodes) skip gracefully - the pipeline never blocks
 - `tests/test_fea.py` covers availability/skip paths, JSON safety,
   sanity bounds, determinism and the 4-check wiring
+
+## Phase 2b (shipped) - spread footings + load combinations
+
+- **IS 456 screening-level spread footings** (`modules/foundation.py`) at
+  corner / edge / interior column positions, sized from allowable bearing
+  pressure (self-weight iteration), depth auto-derived from one-way shear
+  and punching shear (`τ = V/(u·d)`), moment checked at the column face -
+  every result a utilisation ≤ 1.00
+- Governing per-position column loads from **LC1/LC2/LC3** (seismic axial
+  from a rigid-couple distribution of the base overturning moment) feed the
+  footings; the analysis carries an `analysis["foundation"]` block and the
+  optimiser escalates on failure: enlarge base (+100 mm bumps) → thicken
+  footing → honest advisory at the code ceiling (mat/raft for soft soil)
+- **Explicit load-combination tables** in `data/codes.json`
+  (`load_combos`), printed in the PDF alongside the **spread footing
+  schedule**; cost breakdown gains a **Foundation (substructure)** row and
+  the floor-plan PNG draws the footing squares
+- Preliminary only - actual SBC governs from a geotechnical
+  investigation; the report states this on every page
 
 ## Quickstart
 
@@ -104,13 +129,16 @@ cost_comparison.png / score_comparison.png
 
 *Simplifications (by design, for concept stage):* triangular seismic
 distribution, portal-frame drift, effective column stiffness, no P-Delta /
-response-spectrum combination / foundation design / seismic detailing.
+response-spectrum combination / detailed foundation design (only
+screening-level spread footings) / seismic detailing.
 The PDF report repeats this honestly.
 
 ## Roadmap
 
-- **Phase 2 (shipped: FEA)** - OpenSeesPy FEA cross-check in the optimiser ✅;
-  still planned: EnergyPlus energy model, foundation sizing, load combinations
+- **Phase 2 + 2b (shipped: FEA, foundations, load combinations)** -
+  OpenSeesPy FEA cross-check in the optimiser ✅; spread-footing sizing
+  with shear/punching/bearing checks ✅; explicit LC1-LC3 combinations in
+  hand + FEA ✅; still planned: EnergyPlus energy model
 - **Phase 3 (planned)** - ML surrogate scoring, genetic optimisation of grids,
   voice input, BIM-ish export (IFC)
 
@@ -126,7 +154,8 @@ BuildingSim/
 │   ├── input_handler.py     # text + dict parsing (voice feeds the same path)
 │   ├── requirement_analyzer.py
 │   ├── design_generator.py  # 3 parametric alternatives
-│   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks
+│   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks + combos + footings
+│   ├── foundation.py        # Phase 2b: IS 456 spread-footing design
 │   ├── fea.py                # Phase 2: OpenSeesPy 3D frame FEA verification
 │   ├── optimization_engine.py  # re-test loop (hand + FEA failures)
 │   ├── cost_estimator.py
@@ -134,7 +163,7 @@ BuildingSim/
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 89 tests (incl. FEA + bug-hunt regression suite)
+└── tests/                   # 110 tests (incl. FEA, foundations + combos)
 ```
 
 ## License

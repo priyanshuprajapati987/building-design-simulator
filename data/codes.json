@@ -105,6 +105,25 @@
     "default": 1700
   },
   "structure_share_of_cost": 0.35,
+  "foundation": {
+    "_comment": "screening-level spread footings only; actual SBC governs from geotechnical investigation (IS 6408). Values are conservative soil-class ranges for early comparison.",
+    "sbc_knm2": {"I": 500, "II": 250, "III": 100},
+    "footing_cover_mm": 50,
+    "min_depth_mm": 300,
+    "max_depth_mm": 900,
+    "depth_step_mm": 50,
+    "size_step_mm": 50,
+    "bump_step_mm": 100,
+    "max_bumps": 8,
+    "self_weight_factor": 1.1,
+    "load_duration_factor": 1.0
+  },
+  "load_combos": {
+    "_comment": "limit-state load combinations, IS 456:2000 CL 18.2 / IS 1893:2016 CL 6.4.1 (screening). LC3 = min-gravity case for edge/corner columns under earthquake.",
+    "LC1": {"label": "1.5 (DL + LL)", "DL": 1.5, "LL": 1.5, "EQ": 0.0},
+    "LC2": {"label": "1.2 (DL + LL + EQ)", "DL": 1.2, "LL": 1.2, "EQ": 1.2},
+    "LC3": {"label": "0.9 DL + 1.2 EQ", "DL": 0.9, "LL": 0.0, "EQ": 1.2}
+  },
   "cities": {
     "_comment": "seismic zone per IS 1893 (Part 1):2016 Annex E (common cities); Vb per IS 875 (Part 3):2015 wind map; terrain default 3 (suburban). Override allowed via input.",
     "delhi": {"state": "Delhi", "zone": "IV", "vb": 47, "terrain": 4},

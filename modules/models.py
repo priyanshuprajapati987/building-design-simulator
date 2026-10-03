@@ -49,6 +49,8 @@ class Design:
     core_ly_m: float = 0.0
     wall_t_mm: int = 200
     column_boost: int = 0                 # optimization: shift column ladder up
+    footing_bump: int = 0                 # optimization: +100 mm footing base each
+    footing_t_mm: int = 0                 # footing thickness, 0 = derive from shear
     notes: str = ""
 
     @property

@@ -135,7 +135,9 @@ def run(text: str | None = None,
             d = r["design"]
             aid = d.id
             images[aid] = {
-                "plan": visualization.floor_plan_png(d, out / f"design_{aid}_plan.png"),
+                "plan": visualization.floor_plan_png(
+                    d, out / f"design_{aid}_plan.png",
+                    foundation=r["analysis"].get("foundation")),
                 "elevation": visualization.elevation_png(d, out / f"design_{aid}_elevation.png"),
                 "seismic": visualization.seismic_chart_png(
                     d, r["analysis"], out / f"design_{aid}_seismic.png"),

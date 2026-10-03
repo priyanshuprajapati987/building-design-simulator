@@ -1,22 +1,33 @@
 """OpenSeesPy frame FEA backend (Phase 2).
 
-Builds a full 3D elastic frame model of a generated design and runs three
+Builds a full 3D elastic frame model of a generated design and runs four
 linear-static load cases:
 
-  G   - service gravity (per-floor loads tributarised to the frame grid)
+  D   - service dead load (per-floor dead, tributarised to the frame grid)
+  L   - service live load (gravity - dead, same tributary pattern)
   Ex  - IS 1893 equivalent-static storey forces F_i along +X
   Ey  - the same forces along +Y
 
+Member forces from the four cases are then combined with the explicit
+IS 456 / IS 1893 load combinations (same set as the hand method):
+
+  LC1  1.5 x (D + L)                     (gravity only)
+  LC2  1.2 x (D + L + EQ)                (gravity + one EQ direction;
+       evaluated per direction - X case and Y case separately)
+  LC3  0.9 x D + 1.2 x EQ                (minimum gravity + EQ)
+
 Extracts verification quantities that are cross-checked against the hand
 method: base-shear equilibrium, inter-story drift index, beam moment
-utilisation and column P-M interaction.
+utilisation and column P-M interaction - each governed by the worst of
+LC1/LC2/LC3, not a fixed 1.5 x service envelope.
 
 Screening-level assumptions (stated in every report):
   * linear static, small deformations (no P-delta) - Phase 3 scope
   * elastic properties from the same member sections as the hand method
   * limit-state capacity formulas identical to the hand method
     (0.136 fck b d^2 moments; 0.85 x (0.4 fck + 0.0067 fy) column axial)
-  * gravity member utilisation = 1.5 x elastic end moments vs capacity
+  * EQ envelope per member takes max over the Ex/Ey cases (single
+    direction at a time per combo, never Ex + Ey together)
   * core shear walls = vertical centre-line line elements per wall, tied to
     the floor grid with equalDOF in-plane diaphragm constraints
   * secondary beams are not modelled (slab checked separately by hand)
@@ -114,10 +125,12 @@ def _guard(d, analysis) -> str | None:
         return f"OpenSeesPy unavailable: {unavailable_reason()}"
     loads = analysis.get("loads", {})
     gravity = loads.get("floor_gravity_kN")
+    dead = loads.get("floor_dead_kN")
     storey = analysis.get("seismic", {}).get("storey_forces", [])
     f_lateral = [row["F_kN"] for row in sorted(storey, key=lambda r: r["floor"])]
     cols = analysis.get("members", {}).get("columns", [])
-    if not gravity or len(gravity) != d.floors or len(f_lateral) != d.floors:
+    if (not gravity or len(gravity) != d.floors or len(f_lateral) != d.floors
+            or (dead is not None and len(dead) != d.floors)):
         return "load record missing from hand analysis"
     if len(cols) != d.floors:
         return "column schedule missing"
@@ -140,13 +153,17 @@ def verify(d, req, analysis: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "skipped": reason}
 
     gravity = analysis["loads"]["floor_gravity_kN"]
+    # D from the hand dead record; graceful fallback (older cached analyses):
+    # treat the whole gravity record as dead and L = 0 (LC1 unchanged).
+    dead = analysis["loads"].get("floor_dead_kN") or gravity
+    live = [max(g - dd, 0.0) for g, dd in zip(gravity, dead)]
     storey = analysis.get("seismic", {}).get("storey_forces", [])
     f_lateral = [row["F_kN"] for row in sorted(storey, key=lambda r: r["floor"])]
     cols = analysis["members"]["columns"]
 
     t0 = time.perf_counter()
     try:
-        return _run(d, analysis, gravity, f_lateral,
+        return _run(d, analysis, gravity, dead, live, f_lateral,
                     [_parse_section(r["section_mm"]) for r in cols], t0)
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -167,7 +184,11 @@ def append_checks(analysis: dict[str, Any]) -> None:
         "detail": f"element-summed base reaction vs applied V = "
                   f"{fea['base_shear_applied_kN']:.0f} kN "
                   f"({fea['base_shear_fea_kN']['x']:.0f} / "
-                  f"{fea['base_shear_fea_kN']['y']:.0f} kN reacted)",
+                  f"{fea['base_shear_fea_kN']['y']:.0f} kN reacted"
+                  + (f", vertical D err "
+                     f"{fea['vertical_equilibrium_err_pct']:.2f} %"
+                     if "vertical_equilibrium_err_pct" in fea else "")
+                  + ")",
     })
     dr = fea["drift_max_index"]
     checks.append({
@@ -182,7 +203,7 @@ def append_checks(analysis: dict[str, Any]) -> None:
         "name": "FEA beam moment (max utilisation)",
         "value": bu, "unit": "-", "limit": "<= 1.00",
         "passed": bool(bu <= 1.0),
-        "detail": f"1.5 x elastic end moments vs 0.136 fck b d^2; "
+        "detail": f"LC1/LC2 factored end moments vs 0.136 fck b d^2; "
                   f"worst M_u = {fea['beam_Mmax_kNm']:.0f} kNm",
     })
     cu = fea["column_max_interaction"]
@@ -200,7 +221,7 @@ def append_checks(analysis: dict[str, Any]) -> None:
 # model build + solve (one fresh model per load case)
 # ---------------------------------------------------------------------------
 
-def _run(d, analysis, gravity, f_lateral, col_sections,
+def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
          t0: float) -> dict[str, Any]:
     ops = _OPS
     nx, ny, nz = d.bays_x, d.bays_y, d.floors
@@ -428,16 +449,36 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
                 sy += f[1]
         return sx, sy
 
+    def base_axial(col_reg, wall_reg) -> float:
+        """Vertical base reaction |Fz| summed from base-level elements -
+        used for the dead-load vertical equilibrium check of case D."""
+        s = 0.0
+        for tag, iz in col_reg + wall_reg:
+            if iz != 0:
+                continue
+            f = ops.eleForce(tag)
+            if f:
+                s += abs(f[2])
+        return s
+
     with _LOCK:
         try:
-            # ---- case G ---------------------------------------------------
+            # ---- case D (dead) --------------------------------------------
             col_reg, bx_reg, by_reg, wall_reg = build()
-            apply_case(gravity, None)
-            f_g = (forces(col_reg), forces(bx_reg), forces(by_reg),
+            apply_case(dead, None)
+            f_d = (forces(col_reg), forces(bx_reg), forces(by_reg),
                    forces(wall_reg))
-            u_g_top = floor_means(3)[-1]
+            u_d_top = floor_means(3)[-1]
             n_nodes = len(ops.getNodeTags())
             n_els = len(ops.getEleTags())
+            v_dead_base = base_axial(col_reg, wall_reg)
+
+            # ---- case L (live) --------------------------------------------
+            col_reg, bx_reg, by_reg, wall_reg = build()
+            apply_case(live, None)
+            f_l = (forces(col_reg), forces(bx_reg), forces(by_reg),
+                   forces(wall_reg))
+            u_l_top = floor_means(3)[-1]
 
             # ---- case Ex --------------------------------------------------
             col_reg, bx_reg, by_reg, wall_reg = build()
@@ -466,6 +507,9 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
     v_applied = ground[0]["V_kN"] if ground else 0.0
     err_x = abs(abs(rx) - v_applied) / v_applied * 100.0 if v_applied else 0.0
     err_y = abs(abs(ry) - v_applied) / v_applied * 100.0 if v_applied else 0.0
+    applied_d = sum(dead)
+    err_g = (abs(v_dead_base - applied_d) / applied_d * 100.0
+             if applied_d else 0.0)
 
     # ---- drift ------------------------------------------------------------
     def max_drift(means: list[float]) -> tuple[float, int]:
@@ -488,7 +532,8 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
     mu_strong = 0.136 * fck * d.beam_w_mm * (d.beam_d_mm - 50) ** 2 / 1e6
     mu_weak = 0.136 * fck * d.beam_d_mm * (d.beam_w_mm - 50) ** 2 / 1e6
 
-    col_g, bx_g, by_g, _wall_g = f_g
+    col_d, bx_d, by_d, _wall_d = f_d
+    col_l, bx_l, by_l, _wall_l = f_l
 
     def end_vals(f: list[float]) -> tuple[float, float, float]:
         """Column helper: (|My|, |Mx|, |Fz|) over both ends.
@@ -517,25 +562,31 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
             weak = abs(f[5])
         return strong, weak
 
-    # beams: strong-axis from gravity, weak-axis (plan bending) from seismic
+    # beams: LC1 = 1.5(D+L); LC2 = 1.2(D+L+EQ); weak axis is EQ-driven
+    # (LC2/LC3 both factor EQ by 1.2, so 1.2 x EQ governs weak bending)
     beam_util_max = 0.0
     beam_m_max = 0.0
     beam_top: list[dict] = []
-    for lbl, reg, ex_map, ey_map, g_map in (
-            ("X", bx_reg, bx_ex, bx_ey, bx_g),
-            ("Y", by_reg, by_ex, by_ey, by_g)):
+    for lbl, reg, ex_map, ey_map, d_map, l_map in (
+            ("X", bx_reg, bx_ex, bx_ey, bx_d, bx_l),
+            ("Y", by_reg, by_ex, by_ey, by_d, by_l)):
         for tag, iz in reg:
-            fg = g_map.get(tag)
-            if not fg:
+            fd_ = d_map.get(tag)
+            fl_ = l_map.get(tag)
+            if not fd_ or not fl_:
                 continue
-            mg, _ = beam_vals(fg, lbl)
-            weak_e = 0.0
+            md, _ = beam_vals(fd_, lbl)
+            ml, _ = beam_vals(fl_, lbl)
+            me_s = me_w = 0.0
             if tag in ex_map:
-                weak_e = max(weak_e, beam_vals(ex_map[tag], lbl)[1])
+                se, we = beam_vals(ex_map[tag], lbl)
+                me_s, me_w = max(me_s, se), max(me_w, we)
             if tag in ey_map:
-                weak_e = max(weak_e, beam_vals(ey_map[tag], lbl)[1])
-            m_u = 1.5 * mg
-            mz_u = 1.5 * weak_e
+                se, we = beam_vals(ey_map[tag], lbl)
+                me_s, me_w = max(me_s, se), max(me_w, we)
+            g = md + ml
+            m_u = max(1.5 * g, 1.2 * (g + me_s))      # LC1 vs LC2 (strong)
+            mz_u = 1.2 * me_w                          # LC2/LC3 (weak)
             s_u = m_u / mu_strong if mu_strong else 9.9
             w_u = mz_u / mu_weak if mu_weak else 9.9
             util = max(s_u, w_u)
@@ -550,7 +601,8 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
     beam_top.sort(key=lambda t: t["util"], reverse=True)
     beam_top = beam_top[:3]
 
-    # columns: P-M interaction per element
+    # columns: P-M interaction per element, explicit combos LC1/LC2-x/
+    # LC2-y/LC3 - governing combo recorded in column_worst
     col_inter_max = 0.0
     col_worst = "-"
     col_detail: dict[str, Any] = {}
@@ -560,29 +612,45 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
         cap = 0.85 * cap_coeff * cb * cd / 1000.0     # kN (hand formula)
         mu_y = 0.136 * fck * byp * (bxp - 50) ** 2 / 1e6   # global-X bending
         mu_z = 0.136 * fck * bxp * (byp - 50) ** 2 / 1e6   # global-Y bending
-        fg = col_g.get(tag)
-        if not fg or cap <= 0:
+        fd_ = col_d.get(tag)
+        fl_ = col_l.get(tag)
+        if not fd_ or not fl_ or cap <= 0:
             continue
-        my_g, mz_g, n_g = end_vals(fg)
-        n_e = my_e = mz_e = 0.0
+        my_d, mz_d, n_d = end_vals(fd_)
+        my_l, mz_l, n_l = end_vals(fl_)
+        g_my, g_mz, g_n = my_d + my_l, mz_d + mz_l, n_d + n_l
+        ex_my = ex_mz = ex_n = 0.0
         if tag in f_ex:
-            ey_, ez_, en_ = end_vals(f_ex[tag])
-            n_e, my_e, mz_e = en_, ey_, ez_
+            ex_my, ex_mz, ex_n = end_vals(f_ex[tag])
+        ey_my = ey_mz = ey_n = 0.0
         if tag in f_ey:
-            ey_, ez_, en_ = end_vals(f_ey[tag])
-            n_e = max(n_e, en_)
-            my_e = max(my_e, ey_)
-            mz_e = max(mz_e, ez_)
-        p_u = 1.5 * (n_g + n_e)
-        my_u = 1.5 * max(my_g, my_e)
-        mz_u = 1.5 * max(mz_g, mz_e)
-        inter = p_u / cap + max(my_u / mu_y if mu_y else 9.9,
-                                mz_u / mu_z if mu_z else 9.9)
+            ey_my, ey_mz, ey_n = end_vals(f_ey[tag])
+        combos = (
+            ("LC1", 1.5 * g_n, 1.5 * g_my, 1.5 * g_mz),
+            ("LC2-x", 1.2 * (g_n + ex_n), 1.2 * (g_my + ex_my),
+             1.2 * (g_mz + ex_mz)),
+            ("LC2-y", 1.2 * (g_n + ey_n), 1.2 * (g_my + ey_my),
+             1.2 * (g_mz + ey_mz)),
+            ("LC3", 0.9 * n_d + 1.2 * max(ex_n, ey_n),
+             1.2 * max(ex_my, ey_my), 1.2 * max(ex_mz, ey_mz)),
+        )
+
+        label, p_u, my_u, mz_u = "", 0.0, 0.0, 0.0
+        inter = -1.0
+        for cand in combos:
+            ci = (cand[1] / cap
+                  + max(cand[2] / mu_y if mu_y else 9.9,
+                        cand[3] / mu_z if mu_z else 9.9))
+            if ci > inter:
+                inter = ci
+                label, p_u, my_u, mz_u = cand
         if inter > col_inter_max:
             col_inter_max = inter
-            col_worst = f"floor {iz + 1}, {cb:.0f} x {cd:.0f} mm"
+            col_worst = (f"floor {iz + 1}, {cb:.0f} x {cd:.0f} mm "
+                         f"({label})")
             col_detail = {
-                "n_g": round(n_g, 1), "n_e": round(n_e, 1),
+                "combo": label,
+                "g_n": round(g_n, 1), "n_e": round(max(ex_n, ey_n), 1),
                 "p_term": round(p_u / cap, 3),
                 "my_u": round(my_u, 1), "mz_u": round(mz_u, 1),
                 "mu_y": round(mu_y, 1), "mu_z": round(mu_z, 1),
@@ -594,9 +662,12 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
         "backend": "openseespy",
         "nodes": n_nodes,
         "elements": n_els,
-        "cases": ["G service", "Ex IS 1893 F_i", "Ey IS 1893 F_i"],
+        "cases": ["D dead", "L live", "Ex IS 1893 F_i", "Ey IS 1893 F_i"],
+        "combos": ["LC1 1.5(D+L)", "LC2 1.2(D+L+EQ)",
+                   "LC3 0.9D + 1.2EQ"],
         "solve_ms": solve_ms,
-        "equilibrium_err_pct": round(max(err_x, err_y), 3),
+        "equilibrium_err_pct": round(max(err_x, err_y, err_g), 3),
+        "vertical_equilibrium_err_pct": round(err_g, 3),
         "base_shear_fea_kN": {"x": round(abs(rx), 1), "y": round(abs(ry), 1)},
         "base_shear_applied_kN": round(v_applied, 1),
         "drift_max_index": round(drift_max, 5),
@@ -609,7 +680,7 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
         "column_worst": col_worst,
         "column_worst_detail": col_detail,
         "diaphragm_spread_max_mm": round(max(spread_x, spread_y) * 1000, 1),
-        "gravity_top_mm": round(abs(u_g_top) * 1000, 2),
+        "gravity_top_mm": round(abs(u_d_top + u_l_top) * 1000, 2),
         "core_walls_modelled": bool(d.core),
         "debug_q": {
             "gravity_per_floor": gravity,
@@ -620,7 +691,8 @@ def _run(d, analysis, gravity, f_lateral, col_sections,
         },
         "approximations": [
             "linear static, no P-delta (Phase 3)",
-            "1.5 x elastic end moments vs limit-state capacity",
+            "explicit LC1-LC3 on elastic end forces "
+            "(EQ envelope max over Ex/Ey, never both together)",
             "core walls as centre-line elements tied by diaphragm",
             "secondary beams not modelled (slab checked by hand)",
         ],

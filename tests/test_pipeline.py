@@ -45,8 +45,9 @@ def test_cost_estimate_shape_and_budget():
     c = cost_estimator.estimate(d, req)
     assert c["total_inr"] > 0
     assert c["within_budget"] is not None
-    assert set(c["breakdown_inr"]) == {"structure", "finishes",
+    assert set(c["breakdown_inr"]) == {"structure", "foundation", "finishes",
                                        "mep_services", "external_and_misc"}
+    assert c["breakdown_inr"]["foundation"] > 0
     assert sum(c["breakdown_inr"].values()) == pytest.approx(
         c["total_inr"], rel=0.01)
 

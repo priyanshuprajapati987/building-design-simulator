@@ -11,6 +11,13 @@ import math
 
 import config as cfg
 
+from .foundation import (
+    design_footing,
+    existing_positions,
+    seismic_axial_factors,
+    trib_ratios,
+    worst_utils,
+)
 from .models import Check, Design, Requirements
 
 G = 9.81
@@ -117,11 +124,13 @@ def analyze(d: Design, req: Requirements) -> dict:
     # ---- gravity + seismic weight -----------------------------------------
     floor_w_seismic: list[float] = []
     floor_gravity: list[float] = []
+    floor_dead: list[float] = []           # dead-only (for combo LC3)
     for i in range(d.floors):
         ll = ll_per_floor[i]
         roof_bonus = green_roof_dl if i == d.floors - 1 else 0.0
         dl_i = dl + roof_bonus
         floor_gravity.append((dl_i + ll) * plate)
+        floor_dead.append(dl_i * plate)
         participation = 1.0 if ll >= 5.0 else 0.5
         floor_w_seismic.append((dl_i + participation * ll) * plate)
 
@@ -130,6 +139,7 @@ def analyze(d: Design, req: Requirements) -> dict:
     parapet_w = perimeter * 1.0 * 0.2 * 24.0
     W_total = sum(floor_w_seismic) + parapet_w
     G_total = sum(floor_gravity)
+    D_total = sum(floor_dead)
 
     # ---- seismic (IS 1893 equivalent static) -------------------------------
     sec = codes["seismic"]
@@ -149,24 +159,46 @@ def analyze(d: Design, req: Requirements) -> dict:
     sum_m = sum(moments) or 1.0
     storey_forces = []
     F = [moments[i] / sum_m * V_base for i in range(d.floors)]
+    # base overturning moment for column/foundation axial from seismic (LC2/LC3)
+    M_ot = sum(F[i] * ((i + 1) * d.floor_h_m - d.floor_h_m / 2.0)
+               for i in range(d.floors))
     for i in range(d.floors - 1, -1, -1):
         shear = sum(F[i:])
         storey_forces.append({"floor": i + 1, "h_m": round((i + 1) * d.floor_h_m, 2),
                               "F_kN": round(F[i], 1), "V_kN": round(shear, 1)})
     storey_forces.reverse()
 
-    # ---- column schedule ---------------------------------------------------
+    # ---- column schedule (governing load combo per position) ---------------
+    # Load combos (IS 456 CL 18.2 / IS 1893 CL 6.4.1): LC1 = 1.5(DL+LL),
+    # LC2 = 1.2(DL+LL+EQ), LC3 = 0.9DL + 1.2EQ (min-gravity, edge/corner).
+    # Seismic axial per position from a rigid-couple distribution of M_ot;
+    # intermediate floors scaled by n_above/floors (screening approximation).
     ladder = sorted(_COLUMN_LADDER, key=lambda s: s[0] * s[1])
     cap_coeff = 0.4 * fck + 0.67 * fy * 0.01        # N/mm2 at 1% steel
     col_rows = []
     max_col_util = 0.0
     governing_col = (230, 300)
-    # worst-case (interior) tributary: bay_x*bay_y, not the frame average -
-    # an interior column carries its full bay, edges/corners carry less.
-    trib_max_ratio = d.bay_x_m * d.bay_y_m / plate
+    MISC = 1.10                                      # allowance for misc loads
+    trib_map = trib_ratios(d)
+    pos_list = existing_positions(d)
+    axial_f = seismic_axial_factors(d)               # kN axial per kNm M_ot
     for i in range(d.floors):                        # i = 0 bottom
         n_above = d.floors - i
-        P_u = 1.5 * floor_gravity[i] * n_above * trib_max_ratio * 1.10
+        scale = n_above / d.floors
+        grav_above = sum(floor_gravity[i:])
+        dead_above = sum(floor_dead[i:])
+        P_u = 0.0
+        gov_pos, gov_lc = pos_list[0], "LC1"
+        for pos in pos_list:
+            tr = trib_map[pos]
+            pe = axial_f[pos] * M_ot * scale
+            for lc, v in (
+                ("LC1", 1.5 * grav_above * tr * MISC),
+                ("LC2", 1.2 * (grav_above * tr * MISC + pe)),
+                ("LC3", 0.9 * dead_above * tr * MISC + 1.2 * pe),
+            ):
+                if v > P_u:
+                    P_u, gov_pos, gov_lc = v, pos, lc
         chosen = ladder[-1]
         chosen_util = 1.0
         start = min(d.column_boost, len(ladder) - 1)
@@ -184,7 +216,31 @@ def analyze(d: Design, req: Requirements) -> dict:
             governing_col = chosen
         max_col_util = max(max_col_util, chosen_util)
         col_rows.append({"floor": i + 1, "section_mm": f"{chosen[0]} x {chosen[1]}",
-                         "P_u_kN": round(P_u, 0), "util": round(chosen_util, 2)})
+                         "P_u_kN": round(P_u, 0), "util": round(chosen_util, 2),
+                         "position": gov_pos, "combo": gov_lc})
+
+    # ---- spread footings (service bearing + factored structural checks) ----
+    fdc = codes["foundation"]
+    sbc = float(fdc["sbc_knm2"].get(req.soil_type, 250.0))
+    foot_rows = []
+    for pos in pos_list:
+        tr = trib_map[pos]
+        p_srv = G_total * tr
+        pe = axial_f[pos] * M_ot
+        lc1 = 1.5 * G_total * tr * MISC
+        lc2 = 1.2 * (G_total * tr * MISC + pe)
+        lc3 = 0.9 * (D_total * tr * MISC) + 1.2 * pe
+        p_u = max(lc1, lc2, lc3)
+        row = design_footing(p_srv, p_u, sbc, fck, col_mm=governing_col,
+                             bump=d.footing_bump, t_mm=d.footing_t_mm)
+        row["position"] = pos
+        row["trib_ratio"] = round(tr, 4)
+        row["P_E_kN"] = round(pe, 0)
+        row["governing_combo"] = ("LC1" if p_u == lc1 else
+                                  "LC2" if p_u == lc2 else "LC3")
+        foot_rows.append(row)
+    f_bearing, f_shear, f_moment = worst_utils(foot_rows)
+    gov_foot = max(foot_rows, key=lambda r: r["util"]) if foot_rows else None
 
     # ---- beams -------------------------------------------------------------
     trib_main = d.bay_x_m / 2 if d.secondary else d.bay_x_m
@@ -308,6 +364,18 @@ def analyze(d: Design, req: Requirements) -> dict:
     if "green_roof" in req.special:
         add("Roof green-loading allowance applied", green_roof_dl, "kN/m2", "> 0",
             True, "extra 2.0 kN/m2 dead load on top floor included")
+    if gov_foot:
+        add("Foundation bearing pressure (max utilisation)", f_bearing, "-", "<= 1.00",
+            f_bearing <= 1.0,
+            f"soil class {req.soil_type}, SBC {sbc:.0f} kN/m2, governing "
+            f"{gov_foot['position']} {gov_foot['size_mm']} mm")
+        add("Foundation shear (max utilisation)", f_shear, "-", "<= 1.00",
+            f_shear <= 1.0,
+            f"one-way at d + punching at d/2, governing "
+            f"{gov_foot['thickness_mm']} mm thick")
+        add("Foundation moment (max utilisation)", f_moment, "-", "<= 1.00",
+            f_moment <= 1.0,
+            f"at column face of {governing_col[0]}x{governing_col[1]} mm column")
 
     return {
         "loads": {
@@ -316,6 +384,7 @@ def analyze(d: Design, req: Requirements) -> dict:
             "live_load_knm2_typical": ll_per_floor[-1],
             "gravity_per_floor_kN": round(floor_gravity[0], 0),
             "floor_gravity_kN": [round(x, 1) for x in floor_gravity],
+            "floor_dead_kN": [round(x, 1) for x in floor_dead],
             "floor_seismic_w_kN": [round(x, 1) for x in floor_w_seismic],
             "seismic_weight_per_floor_kN": round(floor_w_seismic[0], 0),
             "W_total_kN": round(W_total, 0),
@@ -346,10 +415,30 @@ def analyze(d: Design, req: Requirements) -> dict:
         },
         "drift": {"max_index": round(max_drift, 5), "limit": DRIFT_LIMIT,
                   "direction": drift_dir, "storeys": storey_detail},
+        "load_combos": {k: v for k, v in codes["load_combos"].items()
+                        if not k.startswith("_")},
+        "foundation": {
+            "soil_type": req.soil_type,
+            "sbc_knm2": sbc,
+            "column_loads": {
+                r["position"]: {"trib_ratio": r["trib_ratio"],
+                                "P_service_kN": r["P_service_kN"],
+                                "P_u_kN": r["P_u_kN"],
+                                "governing_combo": r["governing_combo"],
+                                "P_E_kN": r["P_E_kN"]}
+                for r in foot_rows},
+            "footings": foot_rows,
+            "max_thickness_mm": max((r["thickness_mm"] for r in foot_rows),
+                                    default=fdc["min_depth_mm"]),
+            "note": "screening-level spread footings - geotechnical "
+                    "investigation required before construction",
+        },
         "checks": [c.to_dict() for c in checks],
         "passed": sum(1 for c in checks if c.passed),
         "total_checks": len(checks),
-        "max_utilisation": round(max(max_col_util, beam_util, slab_util), 2),
+        "max_utilisation": round(
+            max(max_col_util, beam_util, slab_util, f_bearing, f_shear,
+                f_moment), 2),
     }
 
 

@@ -293,6 +293,15 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                 wnd["ot_factor_x"], wnd["ot_factor_y"]]],
               [20, 16, 22, 26, 22, 22], aligns=["C"] * 6, size=8.5)
 
+        combos = a.get("load_combos") or {}
+        if combos:
+            _h2(pdf, "Load combinations (IS 456 CL 18.2 / IS 1893 CL 6.4.1)")
+            _grid(pdf, ["ID", "Combination", "DL", "LL", "EQ"],
+                  [[k, v["label"], v["DL"], v["LL"], v["EQ"]]
+                   for k, v in combos.items()],
+                  [16, 96, 16, 16, 16],
+                  aligns=["C", "L", "C", "C", "C"], size=8.5)
+
         _h2(pdf, "Code checks")
         colors = {}
         check_rows = []
@@ -318,7 +327,7 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                   [["Model", f"{fea_r['nodes']} nodes, "
                              f"{fea_r['elements']} elements, "
                              f"{fea_r['solve_ms']} ms",
-                    "3 linear-static cases (G, Ex, Ey)"],
+                    "4 linear-static cases (D, L, Ex, Ey) -> LC1-LC3"],
                    ["Base-shear equilibrium", f"{fea_r['equilibrium_err_pct']} %",
                     "<= 5 %"],
                    ["Inter-story drift index (max)",
@@ -349,6 +358,7 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
         _h2(pdf, "Cost estimate")
         _grid(pdf, ["Component", "Share (Rs.)"],
               [["Structure (frame/slab/core)", f"{c['breakdown_inr']['structure']:,.0f}"],
+               ["Foundation (substructure)", f"{c['breakdown_inr']['foundation']:,.0f}"],
                ["Finishes", f"{c['breakdown_inr']['finishes']:,.0f}"],
                ["MEP / services", f"{c['breakdown_inr']['mep_services']:,.0f}"],
                ["External + misc", f"{c['breakdown_inr']['external_and_misc']:,.0f}"],
@@ -394,6 +404,25 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                       f"{len(fl)}"] for sec, fl in seen.items()]
             _grid(pdf, ["Section (mm)", "Floors", "Count"], sched,
                   [50, 50, 30], aligns=["L", "C", "C"], size=8.5)
+
+        # spread footing schedule for this design
+        fnd = a.get("foundation") or {}
+        if fnd.get("footings"):
+            _h2(pdf, "Spread footing schedule (screening)")
+            frows = [[fr["position"], fr["governing_combo"],
+                      f"{fr['P_service_kN']:,.0f}", fr["size_mm"],
+                      fr["thickness_mm"], fr["bearing_util"],
+                      max(fr["shear_util"], fr["punching_util"]),
+                      fr["moment_util"]]
+                     for fr in fnd["footings"]]
+            _grid(pdf, ["Position", "Gov. combo", "P serv (kN)", "Size BxB (mm)",
+                        "t (mm)", "Bearing", "Shear", "Moment"],
+                  frows, [24, 24, 26, 30, 16, 18, 18, 18],
+                  aligns=["L", "C", "R", "C", "C", "R", "R", "R"], size=8)
+            _note(pdf, f"Allowable bearing SBC = {fnd['sbc_knm2']:.0f} kN/m2 "
+                       f"(soil class {fnd['soil_type']}); combined with LC1/LC2/"
+                       f"LC3 above. {fnd['note']}.",
+                  kind="info")
 
     # ---------------- 4. optimisation summary ----------------
     pdf.add_page()

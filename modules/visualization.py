@@ -23,7 +23,8 @@ def _color(d: Design) -> str:
 # 2D floor plan
 # ---------------------------------------------------------------------------
 
-def floor_plan_png(d: Design, path: Path, dpi: int = 120) -> Path:
+def floor_plan_png(d: Design, path: Path, dpi: int = 120,
+                   foundation: dict | None = None) -> Path:
     L, W = d.len_x_m, d.len_y_m
     m = 3.0                                   # margin for dimensions
     fig_w = min(14.0, max(7.0, L + 2 * m + 1))
@@ -51,7 +52,24 @@ def floor_plan_png(d: Design, path: Path, dpi: int = 120) -> Path:
             y = ys[j] + d.bay_y_m / 2
             ax.plot([0, L], [y, y], color="#cbd5e1", lw=0.7, ls=(0, (4, 3)), zorder=1)
 
-    # columns
+    # columns (spread footings drawn under them when foundation data given)
+    foot_sizes: dict[str, int] = {}
+    if foundation:
+        foot_sizes = {r["position"]: r["B_mm"]
+                      for r in foundation.get("footings", [])}
+        for i, x in enumerate(xs):
+            for j, y in enumerate(ys):
+                on_x = i in (0, d.bays_x)
+                on_y = j in (0, d.bays_y)
+                pos = ("corner" if on_x and on_y else
+                       "edge" if on_x or on_y else "interior")
+                b = foot_sizes.get(pos)
+                if not b:
+                    continue
+                half = b / 2000.0
+                ax.add_patch(Rectangle((x - half, y - half), b / 1000.0,
+                                       b / 1000.0, fill=False, ec="#f59e0b",
+                                       lw=1.1, ls=(0, (5, 2)), zorder=1.5))
     s = max(0.5, min(L, W) * 0.025)
     for x in xs:
         for y in ys:
@@ -84,8 +102,12 @@ def floor_plan_png(d: Design, path: Path, dpi: int = 120) -> Path:
     ax.set_ylim(-m, W + m + 1.0)
     ax.set_aspect("equal")
     ax.axis("off")
+    foot_line = ("\nspread footings: "
+                 + ", ".join(f"{k} {v} mm"
+                             for k, v in foot_sizes.items())) if foot_sizes else ""
     ax.set_title(f"{d.id} - {d.name}   |   plan {L:.1f} x {W:.1f} m   "
-                 f"|   {d.plate_sqft:.0f} sqft/floor   |   {d.n_columns} columns",
+                 f"|   {d.plate_sqft:.0f} sqft/floor   |   {d.n_columns} columns"
+                 f"{foot_line}",
                  fontsize=11, fontweight="bold", color=_color(d), pad=10)
     fig.tight_layout()
     path = Path(path)
@@ -202,9 +224,11 @@ def cost_chart_png(results: list[dict], path: Path, dpi: int = 110) -> Path:
     ax1.tick_params(axis="x", labelsize=8)
 
     # stacked breakdown
-    keys = ["structure", "finishes", "mep_services", "external_and_misc"]
+    keys = ["structure", "foundation", "finishes", "mep_services",
+            "external_and_misc"]
     bottoms = np.zeros(len(results))
-    for k, color in zip(keys, ["#334155", "#2563eb", "#059669", "#d97706"]):
+    colors = ["#334155", "#f59e0b", "#2563eb", "#059669", "#d97706"]
+    for k, color in zip(keys, colors):
         vals = np.array([r["cost"]["breakdown_inr"][k] / 1e7 for r in results])
         ax2.bar(labels, vals, bottom=bottoms, label=k.replace("_", " "), color=color)
         bottoms += vals

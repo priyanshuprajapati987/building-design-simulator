@@ -106,6 +106,25 @@ def test_verify_solves_and_is_json_safe(small):
         assert key in res, key
 
 
+def test_result_declares_four_cases_and_combos(small):
+    """Phase-2b: D/L/Ex/Ey cases + explicit LC1-LC3 combination record."""
+    req, d, analysis = small
+    res = fea.verify(d, req, analysis)
+    if not res.get("ok"):
+        pytest.skip(f"FEA skipped: {res.get('skipped') or res.get('error')}")
+    assert res["cases"] == ["D dead", "L live",
+                            "Ex IS 1893 F_i", "Ey IS 1893 F_i"]
+    assert len(res["combos"]) == 3
+    assert res["combos"][0].startswith("LC1")
+    # dead/live split actually recorded in the hand loads used for D + L
+    loads = analysis["loads"]
+    assert len(loads["floor_dead_kN"]) == d.floors
+    assert sum(loads["floor_dead_kN"]) < sum(loads["floor_gravity_kN"])
+    # vertical equilibrium of the D case is folded into the max-error check
+    assert res["vertical_equilibrium_err_pct"] <= 5.0
+    assert res["equilibrium_err_pct"] >= res["vertical_equilibrium_err_pct"]
+
+
 def test_verify_sane_bounds(small):
     req, d, analysis = small
     res = fea.verify(d, req, analysis)

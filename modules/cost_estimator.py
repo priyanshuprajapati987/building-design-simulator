@@ -33,8 +33,10 @@ def estimate(d: Design, req: Requirements) -> dict:
     total = builtup * eff_rate
 
     share = _STRUCTURE_SHARE.get(d.system, 0.35)
+    foundation_share = round(share * 0.30, 4)   # substructure ~30% of structure
     breakdown = {
-        "structure": round(total * share, 0),
+        "structure": round(total * (share - foundation_share), 0),
+        "foundation": round(total * foundation_share, 0),
         "finishes": round(total * 0.30, 0),
         "mep_services": round(total * 0.20, 0),
         "external_and_misc": round(total * (1.0 - share - 0.30 - 0.20), 0),

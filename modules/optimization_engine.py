@@ -15,6 +15,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+import config as cfg
+
 from . import fea
 from .models import Design, Requirements
 from .structural_analyzer import _COLUMN_LADDER, analyze
@@ -23,6 +25,33 @@ MAX_ITER = 24
 
 _BEAM_MAX_D = 1200   # beyond this a RC beam is uneconomical -> advisory
 _SLAB_MAX_T = 350    # beyond this a RC slab is uneconomical -> advisory
+
+
+def _codes_foundation() -> dict:
+    return cfg.get_codes().get("foundation", {})
+
+
+def codes_max_bumps() -> int:
+    return int(_codes_foundation().get("max_bumps", 8))
+
+
+def codes_max_depth() -> int:
+    return int(_codes_foundation().get("max_depth_mm", 900))
+
+
+def foundation_sbc(analysis: dict | None = None) -> float:
+    if analysis and "foundation" in analysis:
+        return float(analysis["foundation"].get("sbc_knm2", 250.0))
+    return float(_codes_foundation().get("sbc_knm2", {}).get("II", 250.0))
+
+
+def _last_foundation_thickness(analysis: dict, d: Design) -> int:
+    """Current governing footing depth: forced value if set, else the
+    auto-derived thickness the analyzer actually used."""
+    if d.footing_t_mm:
+        return d.footing_t_mm
+    return int(analysis.get("foundation", {}).get("max_thickness_mm",
+                                                  codes_max_depth()))
 
 # genuinely non-auto-fixable issues -> honest advisory text
 _ADVISE_TEXT = {
@@ -37,6 +66,9 @@ def _kind(name: str) -> str | None:
     Case-insensitive so both hand checks ("Beam moment capacity...") and
     FEA checks ("FEA beam moment (max utilisation)") map correctly."""
     low = name.lower()
+    if "foundation" in low:
+        return ("foundation_bearing" if "bearing" in low
+                else "foundation_depth")   # shear/moment -> deepen footing
     if "column" in low and ("axial" in low or "interaction" in low
                             or "utilisation" in low):
         return "column"
@@ -136,6 +168,29 @@ def optimize(design: Design, req: Requirements) -> tuple[Design, dict, list[dict
                 continue
             d.slab_t_mm += 25
             action = f"slab thickness increased to {d.slab_t_mm} mm"
+        elif kind == "foundation_bearing":
+            max_bumps = int(codes_max_bumps())
+            if d.footing_bump >= max_bumps:
+                advisories.add(name)
+                log(it, name, before,
+                    f"advisory: footing base at +{max_bumps * 100} mm ceiling "
+                    f"on SBC {foundation_sbc(analysis):.0f} kN/m2 - softer "
+                    f"soil needs a mat/raft foundation (manual review)")
+                continue
+            d.footing_bump += 1
+            action = (f"footing base enlarged by 100 mm on all positions "
+                      f"(bump={d.footing_bump})")
+        elif kind == "foundation_depth":
+            max_t = int(codes_max_depth())
+            cur_t = _last_foundation_thickness(analysis, d)
+            if cur_t >= max_t:
+                advisories.add(name)
+                log(it, name, before,
+                    f"advisory: footing at {max_t} mm depth ceiling - "
+                    f"increase concrete grade or reduce loads (manual review)")
+                continue
+            d.footing_t_mm = min(cur_t + 50, max_t)
+            action = f"footing thickness increased to {d.footing_t_mm} mm"
         elif not d.core:
             d.core = True
             d.system = "rc_dual"
