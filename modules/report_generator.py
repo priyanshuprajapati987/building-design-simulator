@@ -128,7 +128,6 @@ def _note(pdf, text, kind="info"):
         pdf.set_fill_color(239, 246, 255)
         pdf.set_text_color(*ACCENT)
     pdf.set_font("helvetica", "", 8.5)
-    x, y = pdf.get_x(), pdf.get_y()
     usable = pdf.w - pdf.l_margin - pdf.r_margin
     pdf.multi_cell(usable, 5, text, border=1, fill=True,
                    new_x=XPos.LMARGIN, new_y=YPos.NEXT)

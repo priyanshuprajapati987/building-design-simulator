@@ -4,7 +4,6 @@ import pytest
 from modules import input_handler, requirement_analyzer
 from modules.models import Requirements
 
-
 # ---------------------------------------------------------------------------
 # parse_text
 # ---------------------------------------------------------------------------

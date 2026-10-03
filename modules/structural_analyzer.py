@@ -10,7 +10,8 @@ from __future__ import annotations
 import math
 
 import config as cfg
-from .models import Requirements, Design, Check
+
+from .models import Check, Design, Requirements
 
 G = 9.81
 
@@ -36,7 +37,7 @@ def spectrum_sa_g(T: float, soil: str) -> float:
     codes = cfg.get_codes()["seismic"]["spectrum"][soil]
     if T < 0.10:
         return 1.0 + 15.0 * T
-    if T <= codes["plateau_end"]:
+    if codes["plateau_end"] >= T:
         return 2.5
     if T <= 4.0:
         return codes["decay_k"] / T
@@ -288,12 +289,19 @@ def analyze(d: Design, req: Requirements) -> dict:
         max_drift <= DRIFT_LIMIT, f"governing direction {drift_dir}")
     add("Wind overturning stability (min factor)", ot_min, "-", f">= {OT_LIMIT}",
         ot_min >= OT_LIMIT, "weight restoring moment / wind overturning moment")
-    add("Seismic base shear ratio V/W", bs_ratio, "-", "0.005 - 0.15",
-        0.005 <= bs_ratio <= 0.15, "sanity band for Indian low/mid-rise")
+    # V/W upper bound = max plausible Ah = (Z/2) x 2.5 x I_max(1.5) / R_min(3)
+    bs_hi = 0.625 * Z
+    add("Seismic base shear ratio V/W", bs_ratio, "-",
+        f"0.005 - {bs_hi:.3f}",
+        0.005 <= bs_ratio <= bs_hi + 1e-9,
+        "sanity band; upper bound = (Z/2)x2.5x1.5/3 for critical buildings")
     add("Fundamental period in spectrum range", T, "s", "0.10 - 4.00",
         0.10 <= T <= 4.0, "equivalent static method valid band")
     add("Building height", height, "m", "<= 60",
-        height <= 60, f"{d.floors} floors x {d.floor_h_m} m")
+        height <= 60,
+        f"{d.floors} floors x {d.floor_h_m} m - 60 m is the Phase-1 "
+        f"screening-scope boundary (not a code limit); beyond it dynamic "
+        f"analysis + system/zone height limits apply")
     if "green_roof" in req.special:
         add("Roof green-loading allowance applied", green_roof_dl, "kN/m2", "> 0",
             True, "extra 2.0 kN/m2 dead load on top floor included")
@@ -320,6 +328,7 @@ def analyze(d: Design, req: Requirements) -> dict:
             "vb_mps": req.vb, "terrain": req.terrain_cat, "k2": round(k2, 3),
             "Vz_mps": round(Vz, 1), "pz_knm2": round(pz, 3), "pd_knm2": round(pd, 3),
             "base_shear_x_kN": round(Vw_x, 0), "base_shear_y_kN": round(Vw_y, 0),
+            "ot_moment_x_kNm": round(Mot_x, 0), "ot_moment_y_kNm": round(Mot_y, 0),
             "ot_factor_x": round(ot_x, 2), "ot_factor_y": round(ot_y, 2),
         },
         "members": {

@@ -87,11 +87,13 @@ def parse_text(text: str) -> dict[str, Any]:
         out["building_type"] = bt
 
     # floors: "10 floor", "10-storey", "G+5", "ground plus 5"
-    m = re.search(r"g\s*\+\s*(\d{1,2})", t)
+    # lookbehind + up-to-4-digits so "100 floor" is 100 (not "00" -> 0)
+    m = re.search(r"g\s*\+\s*(\d{1,3})", t)
     if m:
         out["floors"] = int(m.group(1)) + 1
     else:
-        m = re.search(r"(\d{1,2})\s*[-\s]?\s*(?:floor|storey|storeys|story|stories|storied)", t)
+        m = re.search(r"(?<!\d)(\d{1,4})\s*[-\s]?\s*"
+                      r"(?:floor|storey|storeys|story|stories|storied)", t)
         if m:
             out["floors"] = int(m.group(1))
 
@@ -120,12 +122,11 @@ def parse_text(text: str) -> dict[str, Any]:
             if m:
                 out["budget_crores"] = _to_number(m.group(1)) / 1e7
 
-    # units per floor
-    m = re.search(r"(\d{1,3})\s*(?:units?|flats?|apartments?|homes?)\b"
+    # units per floor (plural-only + lookbehind: "G+50 apartment" must NOT
+    # set units=50, and "1000 units" must be 1000 not "000" -> 0)
+    m = re.search(r"(?<!\d)(\d{1,4})\s*(?:units|flats|apartments|homes)\b"
                   r"(?:\s*(?:per|each|a|every|on each)\s*floor)?", t)
-    if m and ("floor" in t or "storey" in t or "unit" in t or "flat" in t):
-        out["units_per_floor"] = int(m.group(1))
-    elif m and out.get("building_type") == "residential":
+    if (m and ("floor" in t or "storey" in t or "unit" in t or "flat" in t)) or (m and out.get("building_type") == "residential"):
         out["units_per_floor"] = int(m.group(1))
 
     # land area

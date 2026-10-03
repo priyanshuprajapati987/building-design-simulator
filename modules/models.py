@@ -1,7 +1,7 @@
 """Shared dataclasses for the building design simulator."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 SQFT_TO_SQM = 0.092903

@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import config as cfg
-from .models import Requirements, Design
+
+from .models import Design, Requirements
 
 _SYSTEM_FACTOR = {
     "rc_frame": 1.00,

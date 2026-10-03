@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -274,7 +275,9 @@ def three_d_html(d: Design, path: Path) -> Path:
         verts = _box_verts(0, d.len_x_m, 0, d.len_y_m, z0, z1)
         idx, xs, ys, zs = [], [], [], []
         for v in verts:
-            xs.append(v[0]); ys.append(v[1]); zs.append(v[2])
+            xs.append(v[0])
+            ys.append(v[1])
+            zs.append(v[2])
         for f in _BOX_FACES:
             idx.extend(f)
         fig.add_trace(go.Mesh3d(
@@ -300,7 +303,9 @@ def three_d_html(d: Design, path: Path) -> Path:
         cy0 = d.len_y_m / 2 - d.core_ly_m / 2
         verts = _box_verts(cx0, cx0 + d.core_lx_m, cy0, cy0 + d.core_ly_m,
                            0, d.height_m)
-        xs = [v[0] for v in verts]; ys = [v[1] for v in verts]; zs = [v[2] for v in verts]
+        xs = [v[0] for v in verts]
+        ys = [v[1] for v in verts]
+        zs = [v[2] for v in verts]
         idx = []
         for f in _BOX_FACES:
             idx.extend(f)

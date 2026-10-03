@@ -4,7 +4,8 @@ from __future__ import annotations
 import math
 
 import config as cfg
-from .models import Requirements, Design, SQFT_TO_SQM
+
+from .models import SQFT_TO_SQM, Design, Requirements
 
 # coverage of plot by floor plate (typical urban norms)
 _COVERAGE = 0.55
@@ -35,7 +36,7 @@ def _slab_t(panel_m: float) -> int:
 
 
 def _beam_d(span_m: float) -> int:
-    return max(350, min(750, int(round(span_m * 1000 / 15.0 / 50.0)) * 50))
+    return max(350, min(750, round(span_m * 1000 / 15.0 / 50.0) * 50))
 
 
 _SPEC = [
@@ -68,8 +69,8 @@ def generate(req: Requirements, seed: int | None = None) -> list[Design]:
         len_x = math.sqrt(plate_sqm * aspect)
         len_y = len_x / aspect
         bay = spec["bay"]
-        bays_x = max(2, int(round(len_x / bay)))
-        bays_y = max(2, int(round(len_y / bay)))
+        bays_x = max(2, round(len_x / bay))
+        bays_y = max(2, round(len_y / bay))
         # cap absurd grids (tiny plots / huge unit counts)
         bays_x = min(bays_x, 12)
         bays_y = min(bays_y, 12)

@@ -4,9 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from modules import pipeline, cost_estimator, optimization_engine
-from modules import input_handler, requirement_analyzer, design_generator
-from modules.structural_analyzer import analyze
+from modules import (
+    cost_estimator,
+    design_generator,
+    input_handler,
+    optimization_engine,
+    pipeline,
+    requirement_analyzer,
+)
 
 BRIEF = ("Design a 10-floor residential building in Mumbai with 4 units per "
          "floor, budget 10 crore, parking and green roof")
@@ -51,6 +56,7 @@ def test_optimization_retests_after_fix():
         input_handler.load(text="25 floor office in Delhi"))
     d = design_generator.generate(req)[0]
     best, analysis, fixes = optimization_engine.optimize(d, req)
+    assert best is not d                     # always a re-tested copy
     # whatever happened, the returned analysis must be consistent
     assert analysis["passed"] <= analysis["total_checks"]
     assert isinstance(fixes, list)

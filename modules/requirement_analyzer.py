@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import config as cfg
+
 from .models import Requirements
 
 _VALID_TYPES = {"residential", "office", "retail", "commercial", "school",
@@ -25,7 +26,9 @@ def analyze(req: Requirements) -> Requirements:
 
     # --- floors -------------------------------------------------------------
     if req.floors < 1:
-        req.floors = 1
+        w.append(f"invalid floors={req.floors} -> 1 (parser produced a "
+                 f"non-positive floor count)")
+    req.floors = max(req.floors, 1)
     if req.floors > 60:
         w.append(f"floors={req.floors} clamped to 60 (beyond tool scope)")
         req.floors = 60

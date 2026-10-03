@@ -107,7 +107,7 @@ BuildingSim/
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 59 tests
+└── tests/                   # 75 tests (incl. bug-hunt regression suite)
 ```
 
 ## License

@@ -1,10 +1,14 @@
 """Structural analysis: IS 1893 / IS 875 formulas + full analyze() smoke."""
 import pytest
 
-from modules import input_handler, requirement_analyzer, design_generator
-from modules.structural_analyzer import (analyze, spectrum_sa_g, period_T,
-                                         k2_factor, DRIFT_LIMIT, OT_LIMIT)
-
+from modules import design_generator, input_handler, requirement_analyzer
+from modules.structural_analyzer import (
+    DRIFT_LIMIT,
+    analyze,
+    k2_factor,
+    period_T,
+    spectrum_sa_g,
+)
 
 # ---------------------------------------------------------------------------
 # code formulas
@@ -30,7 +34,7 @@ def test_spectrum_tail():
 def test_period_frame_formula():
     # T = 0.075 * h^0.75, h = 32 m
     T = period_T("rc_frame", 32.0, 20.0)
-    assert T == pytest.approx(0.075 * 32.0 ** 0.75, rel=1e-6)
+    assert pytest.approx(0.075 * 32.0 ** 0.75, rel=1e-6) == T
 
 
 def test_period_dual_formula_clamped():

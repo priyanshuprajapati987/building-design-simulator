@@ -48,7 +48,7 @@ def _print_summary(summary: dict) -> None:
         print(f"\nOutputs : {files['dir']}")
         if "pdf" in files:
             print(f"  PDF   : {files['pdf']}")
-        print(f"  3D    : design_*_3d.html (open in a browser)")
+        print("  3D    : design_*_3d.html (open in a browser)")
     if summary.get("pdf_error"):
         print(f"  (PDF failed: {summary['pdf_error']})")
     print(f"\n{cfg.DISCLAIMER}\n")

@@ -8,11 +8,17 @@ from pathlib import Path
 from typing import Any
 
 import config as cfg
-from . import (input_handler, requirement_analyzer, design_generator,
-               structural_analyzer, cost_estimator, optimization_engine,
-               visualization, report_generator)
-from .models import Requirements, Design
 
+from . import (
+    cost_estimator,
+    design_generator,
+    input_handler,
+    optimization_engine,
+    report_generator,
+    requirement_analyzer,
+    visualization,
+)
+from .models import Design, Requirements
 
 # ---------------------------------------------------------------------------
 # scoring / ranking
@@ -60,6 +66,25 @@ def run(text: str | None = None,
 
     designs: list[Design] = design_generator.generate(req, seed=seed)
 
+    # ---- footprint sanity warnings (post-grid-generation) ------------------
+    if req.land_area_sqft:
+        plate_max = max(d.plate_sqft for d in designs)
+        if plate_max > 0.70 * req.land_area_sqft:
+            req.warnings.append(
+                f"generated footprint {plate_max:.0f} sqft exceeds 70% of the "
+                f"{req.land_area_sqft:.0f} sqft plot - reduce units/coverage "
+                f"or increase plot area")
+    if req.building_type == "residential" and req.units_per_floor:
+        codes = cfg.get_codes()
+        unit_area = codes["unit_areas_sqft"]["residential_default"]
+        implied = req.units_per_floor * unit_area * 0.85
+        actual = max(d.plate_sqft for d in designs)
+        if actual < 0.70 * implied:
+            req.warnings.append(
+                f"footprint {actual:.0f} sqft is below the ~{implied:.0f} sqft "
+                f"implied by {req.units_per_floor} units/floor - grid is "
+                f"capped at 12 bays (Phase-1 limit)")
+
     results: list[dict[str, Any]] = []
     for d in designs:
         opt_d, analysis, fixes = optimization_engine.optimize(d, req)
@@ -93,6 +118,10 @@ def run(text: str | None = None,
     if out_dir is None:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = cfg.OUTPUT_DIR / f"run_{stamp}"
+        i = 1
+        while out.exists():                      # same-second rerun collision
+            out = cfg.OUTPUT_DIR / f"run_{stamp}_{i}"
+            i += 1
     else:
         out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -145,9 +174,7 @@ def run(text: str | None = None,
     if make_pdf:
         try:
             pdf_path = report_generator.build_report(
-                summary, {k: (v if isinstance(v, dict) and "plan" in v else v)
-                          for k, v in images.items()},
-                out / "report.pdf")
+                summary, images, out / "report.pdf")
             summary["files"] = {"pdf": str(pdf_path)}
         except Exception as exc:                    # PDF must never kill the run
             summary["files"] = {}
