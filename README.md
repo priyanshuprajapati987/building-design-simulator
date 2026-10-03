@@ -24,6 +24,32 @@
 | 7. Score & rank | 40% compliance + 25% member efficiency + 20% cost + 15% drift margin |
 | 8. Output | Floor plan, elevation, seismic + cost + score charts, **interactive 3D (HTML)**, `summary.json`, **PDF report** |
 
+## Phase 2 (shipped) - OpenSeesPy FEA verification
+
+Every design is additionally solved with a **3D elastic frame FEA**
+(OpenSeesPy, linear static) *inside the same optimise/re-test loop*, so FEA
+failures are auto-fixed too - not just reported:
+
+| FEA check | Limit | What it proves |
+|-----------|-------|----------------|
+| Base-shear equilibrium | ≤ 5 % | element-summed base reactions match applied V (model integrity) |
+| Inter-story drift index | ≤ 0.004 | independent drift cross-check vs the hand portal model |
+| Beam moment utilisation | ≤ 1.0 | 1.5 × elastic end moments vs `0.136 fck b d²` |
+| Column P-M interaction | ≤ 1.0 | `P/cap + max(My/μy, Mz/μz)` on every column |
+
+- Load cases per design: **G** (service gravity, one-way slab → X-beam
+  work-equivalent nodal loads), **Ex** and **Ey** (IS 1893 equivalent-static
+  storey forces) - each on a fresh wiped model
+- Optimiser escalates on FEA failure: deeper beams → column size ladder →
+  shear-wall core (rc_dual) → honest advisory when ladders are exhausted
+- Engine quirks handled: `Umfpack`+`RCM` solver, no `ops.remove('load')`,
+  broken `eleLoad`/`nodeReaction` (global-force slot extraction verified by
+  probe models)
+- Toggle with `FEA_ENABLED` in `config.py`; models above `MAX_NODES`
+  (12 000 nodes) skip gracefully - the pipeline never blocks
+- `tests/test_fea.py` covers availability/skip paths, JSON safety,
+  sanity bounds, determinism and the 4-check wiring
+
 ## Quickstart
 
 ```bash
@@ -83,8 +109,8 @@ The PDF report repeats this honestly.
 
 ## Roadmap
 
-- **Phase 2 (planned)** - OpenSeesPy FEA cross-check, EnergyPlus energy model,
-  foundation sizing, wind + seismic load combinations
+- **Phase 2 (shipped: FEA)** - OpenSeesPy FEA cross-check in the optimiser ✅;
+  still planned: EnergyPlus energy model, foundation sizing, load combinations
 - **Phase 3 (planned)** - ML surrogate scoring, genetic optimisation of grids,
   voice input, BIM-ish export (IFC)
 
@@ -101,13 +127,14 @@ BuildingSim/
 │   ├── requirement_analyzer.py
 │   ├── design_generator.py  # 3 parametric alternatives
 │   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks
-│   ├── optimization_engine.py  # re-test loop
+│   ├── fea.py                # Phase 2: OpenSeesPy 3D frame FEA verification
+│   ├── optimization_engine.py  # re-test loop (hand + FEA failures)
 │   ├── cost_estimator.py
 │   ├── visualization.py     # matplotlib 2D/charts + plotly 3D
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 75 tests (incl. bug-hunt regression suite)
+└── tests/                   # 89 tests (incl. FEA + bug-hunt regression suite)
 ```
 
 ## License

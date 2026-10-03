@@ -30,16 +30,21 @@ def _print_summary(summary: dict) -> None:
         print(f"Notes   : {len(req['warnings'])} input warning(s)")
     print("-" * 74)
     print(f"{'ID':<3} {'Design':<28} {'Cost (Cr)':>10} {'Score':>7} "
-          f"{'Checks':>9} {'Drift':>8} {'Rank':>5}")
+          f"{'Checks':>9} {'Drift':>8} {'FEA':>6} {'Rank':>5}")
     for r in summary["results"]:
         a = r["analysis"]
+        fea_r = a.get("fea") or {}
+        fea_cell = (f"{fea_r['column_max_interaction']:.2f}"
+                    if fea_r.get("ok") else "-")
         print(f"{r['design']['id']:<3} {r['design']['name']:<28} "
               f"{r['cost']['total_inr'] / 1e7:>10.2f} {r['score']:>7.0f} "
               f"{a['passed']:>2}/{a['total_checks']:<6} "
-              f"{a['drift']['max_index']:>8.4f} {r['rank']:>5}")
+              f"{a['drift']['max_index']:>8.4f} {fea_cell:>6} {r['rank']:>5}")
     w = summary["winner"]
     print("-" * 74)
     print(f"WINNER  : {w['id']} - {w['name']} (score {w['score']:.0f}/100)")
+    print("FEA     : worst OpenSees column interaction "
+          "(0.00-1.00; '-' = verification skipped)")
     if req.get("warnings"):
         for msg in req["warnings"][:8]:
             print(f"  ! {msg}")

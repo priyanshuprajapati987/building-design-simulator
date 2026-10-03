@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# Phase-2 OpenSees FEA verification (set FEA_ENABLED=0 to skip)
+FEA_ENABLED = os.environ.get("FEA_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off")
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 CODES_FILE = DATA_DIR / "codes.json"

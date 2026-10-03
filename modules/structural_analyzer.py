@@ -161,9 +161,12 @@ def analyze(d: Design, req: Requirements) -> dict:
     col_rows = []
     max_col_util = 0.0
     governing_col = (230, 300)
+    # worst-case (interior) tributary: bay_x*bay_y, not the frame average -
+    # an interior column carries its full bay, edges/corners carry less.
+    trib_max_ratio = d.bay_x_m * d.bay_y_m / plate
     for i in range(d.floors):                        # i = 0 bottom
         n_above = d.floors - i
-        P_u = 1.5 * floor_gravity[i] * n_above / n_col * 1.10
+        P_u = 1.5 * floor_gravity[i] * n_above * trib_max_ratio * 1.10
         chosen = ladder[-1]
         chosen_util = 1.0
         start = min(d.column_boost, len(ladder) - 1)
@@ -312,6 +315,8 @@ def analyze(d: Design, req: Requirements) -> dict:
             "live_load_knm2_ground": ll_per_floor[0],
             "live_load_knm2_typical": ll_per_floor[-1],
             "gravity_per_floor_kN": round(floor_gravity[0], 0),
+            "floor_gravity_kN": [round(x, 1) for x in floor_gravity],
+            "floor_seismic_w_kN": [round(x, 1) for x in floor_w_seismic],
             "seismic_weight_per_floor_kN": round(floor_w_seismic[0], 0),
             "W_total_kN": round(W_total, 0),
             "G_total_kN": round(G_total, 0),

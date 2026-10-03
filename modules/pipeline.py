@@ -87,6 +87,8 @@ def run(text: str | None = None,
 
     results: list[dict[str, Any]] = []
     for d in designs:
+        # optimize() also runs the Phase-2 OpenSees FEA verification and
+        # appends its 4 checks (analysis["fea"] carries the raw result)
         opt_d, analysis, fixes = optimization_engine.optimize(d, req)
         cost = cost_estimator.estimate(opt_d, req)
 

@@ -4,3 +4,7 @@ numpy>=1.26
 plotly>=5.20
 streamlit>=1.30
 pytest>=8.0
+# Phase-2 FEA backend - pin exact: 3.7.0.3 wheel links python312.dll and
+# 3.8.x requires Python 3.12 (both break on our 3.11 venv). The app degrades
+# gracefully to hand-method checks when this is missing (FEA_ENABLED=0 too).
+openseespy==3.7.0.1

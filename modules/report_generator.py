@@ -308,7 +308,43 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                    f"({a['passed']}/{a['total_checks']} checks passed, "
                    f"max utilisation {a['max_utilisation']}, drift "
                    f"{a['drift']['max_index']} <= {a['drift']['limit']}).",
-              size=9)
+               size=9)
+
+        # ---- Phase-2 OpenSees FEA verification ---------------------------
+        fea_r = a.get("fea") or {}
+        if fea_r.get("ok"):
+            _h2(pdf, "OpenSees FEA verification (Phase 2)")
+            _grid(pdf, ["Quantity", "Value", "Limit / note"],
+                  [["Model", f"{fea_r['nodes']} nodes, "
+                             f"{fea_r['elements']} elements, "
+                             f"{fea_r['solve_ms']} ms",
+                    "3 linear-static cases (G, Ex, Ey)"],
+                   ["Base-shear equilibrium", f"{fea_r['equilibrium_err_pct']} %",
+                    "<= 5 %"],
+                   ["Inter-story drift index (max)",
+                    f"{fea_r['drift_max_index']} ({fea_r['drift_direction']}, "
+                    f"floor {fea_r['drift_governing_floor']})", "<= 0.004"],
+                   ["Beam moment utilisation (max)",
+                    f"{fea_r['beam_max_util']} (M_u "
+                    f"{fea_r['beam_Mmax_kNm']:.0f} kNm)", "<= 1.00"],
+                   ["Column interaction (max)",
+                    f"{fea_r['column_max_interaction']} "
+                    f"({fea_r['column_worst']})", "<= 1.00"],
+                   ["Diaphragm spread (max)",
+                    f"{fea_r['diaphragm_spread_max_mm']} mm",
+                    "plan distortion under lateral load"],
+                   ["Gravity top displacement", f"{fea_r['gravity_top_mm']} mm",
+                    "service load, linear elastic"]],
+                  [56, 66, 48], aligns=["L", "R", "L"], size=8)
+            _note(pdf, "FEA assumptions: " + "; ".join(fea_r["approximations"])
+                       + ".", kind="info")
+        elif fea_r.get("skipped"):
+            _note(pdf, f"OpenSees FEA verification skipped: {fea_r['skipped']}.",
+                  kind="warn")
+        elif fea_r.get("error"):
+            _note(pdf, f"OpenSees FEA verification failed: {fea_r['error']}. "
+                       "Hand-method checks above are unaffected.",
+                  kind="warn")
 
         _h2(pdf, "Cost estimate")
         _grid(pdf, ["Component", "Share (Rs.)"],

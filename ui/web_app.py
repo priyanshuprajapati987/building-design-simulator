@@ -175,6 +175,8 @@ with tab_cmp:
         "Checks": f"{r['analysis']['passed']}/{r['analysis']['total_checks']}",
         "Max util": r["analysis"]["max_utilisation"],
         "Drift": r["analysis"]["drift"]["max_index"],
+        "FEA drift": (f"{r['analysis']['fea']['drift_max_index']:.4f}"
+                      if r["analysis"].get("fea", {}).get("ok") else "-"),
         "Score": r["score"],
         "Rank": r["rank"],
     } for r in results]
@@ -216,6 +218,20 @@ for tab, r in zip((tab_a, tab_b, tab_c), results):
         k4.metric("Max util", f"{a['max_utilisation']:.2f}")
         k5.metric("Drift", f"{a['drift']['max_index']:.4f}",
                   delta=f"limit {a['drift']['limit']}", delta_color="inverse")
+
+        fea_r = a.get("fea") or {}
+        if fea_r.get("ok"):
+            st.success(
+                f"OpenSees FEA verified: equilibrium err "
+                f"{fea_r['equilibrium_err_pct']}% | drift "
+                f"{fea_r['drift_max_index']:.4f} (dir {fea_r['drift_direction']})"
+                f" | beam {fea_r['beam_max_util']:.2f} | column "
+                f"{fea_r['column_max_interaction']:.2f} | {fea_r['nodes']} nodes, "
+                f"{fea_r['solve_ms']} ms")
+        elif fea_r.get("skipped"):
+            st.info("OpenSees FEA skipped: " + fea_r["skipped"])
+        elif fea_r.get("error"):
+            st.warning("OpenSees FEA failed: " + fea_r["error"])
 
         st.markdown("**Code checks**")
         import pandas as pd
@@ -268,6 +284,9 @@ for tab, r in zip((tab_a, tab_b, tab_c), results):
                          width="stretch", hide_index=True)
             st.markdown("**Wind (IS 875-3)**")
             st.json(a["wind"])
+            if a.get("fea", {}).get("ok"):
+                st.markdown("**OpenSees FEA detail (Phase 2)**")
+                st.json(a["fea"])
 
 # ---------------------------------------------------------------------------
 # optimisation tab

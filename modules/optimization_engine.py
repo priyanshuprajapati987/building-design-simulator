@@ -15,10 +15,11 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from . import fea
 from .models import Design, Requirements
 from .structural_analyzer import _COLUMN_LADDER, analyze
 
-MAX_ITER = 8
+MAX_ITER = 24
 
 _BEAM_MAX_D = 1200   # beyond this a RC beam is uneconomical -> advisory
 _SLAB_MAX_T = 350    # beyond this a RC slab is uneconomical -> advisory
@@ -32,16 +33,29 @@ _ADVISE_TEXT = {
 
 
 def _kind(name: str) -> str | None:
-    """Map a failed check name to its fix kind (or None if not actionable)."""
-    if "Column axial" in name or ("utilisation" in name and "Column" in name):
+    """Map a failed check name to its fix kind (or None if not actionable).
+    Case-insensitive so both hand checks ("Beam moment capacity...") and
+    FEA checks ("FEA beam moment (max utilisation)") map correctly."""
+    low = name.lower()
+    if "column" in low and ("axial" in low or "interaction" in low
+                            or "utilisation" in low):
         return "column"
-    if "Beam moment" in name:
+    if "beam" in low and ("moment" in low or "utilisation" in low):
         return "beam"
-    if "Slab" in name:
+    if "slab" in low:
         return "slab"
-    if "drift" in name.lower():
+    if "drift" in low:
         return "drift"
     return None
+
+
+def _refresh(d: Design, req: Requirements) -> dict:
+    """Hand analysis + Phase-2 OpenSees FEA verification, as one unit, so the
+    optimiser sees BOTH hand and FEA failures and can fix the design."""
+    analysis = analyze(d, req)
+    analysis["fea"] = fea.verify(d, req, analysis)
+    fea.append_checks(analysis)
+    return analysis
 
 
 def optimize(design: Design, req: Requirements) -> tuple[Design, dict, list[dict[str, Any]]]:
@@ -50,7 +64,7 @@ def optimize(design: Design, req: Requirements) -> tuple[Design, dict, list[dict
     fix_log: list[dict[str, Any]] = []
     advisories: set[str] = set()      # issues that can no longer be auto-fixed
     attempts: dict[str, int] = {}     # fix-attempts per issue (fair rotation)
-    analysis = analyze(d, req)
+    analysis = _refresh(d, req)
 
     def log(it: int, name: str, before: Any, action: str) -> None:
         fix_log.append({"iteration": it + 1, "issue": name,
@@ -78,11 +92,26 @@ def optimize(design: Design, req: Requirements) -> tuple[Design, dict, list[dict
 
         if kind == "column":
             if d.column_boost >= len(_COLUMN_LADDER) - 1:
+                if not d.core:
+                    # ladder exhausted on a moment-driven P-M failure:
+                    # the structural fix is a shear-wall core (RC dual)
+                    d.core = True
+                    d.system = "rc_dual"
+                    d.core_lx_m = max(4.0, round(min(0.35 * d.len_x_m, 10.0), 1))
+                    d.core_ly_m = max(3.5, round(min(0.40 * d.len_y_m, 8.0), 1))
+                    log(it, name, before,
+                        "column size ladder exhausted - structural shear-wall "
+                        "core added at centre (system upgraded to rc_dual)")
+                    analysis = _refresh(d, req)
+                    continue
                 advisories.add(name)
+                # NOTE: wording must NOT contain "advisory" — wrap-up uses
+                # that word to skip its honest "still failing" tail, which
+                # tests (and the report) rely on for exhausted designs.
                 log(it, name, before,
-                    "advisory: column size ladder exhausted - reduce "
-                    "loads/spans or switch to a core/outrigger system "
-                    "(Phase 2)")
+                    "column ladder exhausted with core walls at maximum - "
+                    "reduce loads/spans or increase concrete grade "
+                    "(manual review)")
                 continue
             d.column_boost += 1
             action = (f"column sections stepped up one size on the ladder "
@@ -125,7 +154,7 @@ def optimize(design: Design, req: Requirements) -> tuple[Design, dict, list[dict
             continue
 
         log(it, name, before, action)
-        analysis = analyze(d, req)
+        analysis = _refresh(d, req)
 
     # ---- honest wrap-up for whatever still fails ---------------------------
     for c in analysis["checks"]:
