@@ -12,10 +12,12 @@ import config as cfg
 from . import (
     cost_estimator,
     design_generator,
+    genetic_optimizer,
     input_handler,
     optimization_engine,
     report_generator,
     requirement_analyzer,
+    surrogate,
     visualization,
 )
 from .models import Design, Requirements
@@ -59,8 +61,13 @@ def run(text: str | None = None,
         out_dir: str | Path | None = None,
         make_pdf: bool = True,
         make_images: bool = True,
-        seed: int | None = None) -> dict[str, Any]:
-    """Run the full pipeline. Returns the summary dict (also saved as JSON)."""
+        seed: int | None = None,
+        genetic: bool | None = None) -> dict[str, Any]:
+    """Run the full pipeline. Returns the summary dict (also saved as JSON).
+
+    ``genetic`` overrides the GENETIC_ENABLED config flag (Phase-3A grid
+    search); None = follow config."""
+    do_ga = cfg.GENETIC_ENABLED if genetic is None else bool(genetic)
     req: Requirements = input_handler.load(text, data)
     requirement_analyzer.analyze(req)
 
@@ -87,9 +94,23 @@ def run(text: str | None = None,
 
     results: list[dict[str, Any]] = []
     for d in designs:
+        # Phase-3A: search the structural grid first (hand-score fitness,
+        # milliseconds per candidate); the ladder below re-runs on the winner
+        ga_stats: dict[str, Any] | None = None
+        if do_ga:
+            ga_d, ga_stats = genetic_optimizer.evolve(d, req, seed=seed or 0)
+            if ga_stats["improved"]:
+                d = ga_d
         # optimize() also runs the Phase-2 OpenSees FEA verification and
         # appends its 4 checks (analysis["fea"] carries the raw result)
         opt_d, analysis, fixes = optimization_engine.optimize(d, req)
+        if ga_stats and ga_stats["improved"]:
+            fixes = [{"iteration": "GA", "issue": "Grid topology",
+                      "before": ga_stats["parent_grid"],
+                      "action": (f"genetic search -> {ga_stats['best_grid']} "
+                                 f"(hand score {ga_stats['parent_score']} -> "
+                                 f"{ga_stats['best_score']})")},
+                     *fixes]
         cost = cost_estimator.estimate(opt_d, req)
 
         # budget becomes an explicit check so it feeds the compliance score
@@ -110,7 +131,7 @@ def run(text: str | None = None,
 
         score = score_design(analysis, cost, req.budget_crores)
         results.append({"design": opt_d, "analysis": analysis, "cost": cost,
-                        "fixes": fixes, "score": score})
+                        "fixes": fixes, "score": score, "genetic": ga_stats})
 
     results.sort(key=lambda r: (-r["score"], r["cost"]["total_inr"]))
     for i, r in enumerate(results, start=1):
@@ -159,6 +180,7 @@ def run(text: str | None = None,
             "fixes": r["fixes"],
             "score": r["score"],
             "rank": r["rank"],
+            "genetic": r.get("genetic"),
         })
 
     summary: dict[str, Any] = {
@@ -168,6 +190,11 @@ def run(text: str | None = None,
         "disclaimer": cfg.DISCLAIMER,
         "requirements": req.to_dict(),
         "results": ser_results,
+        "genetic": ({
+            "enabled": True,
+            "designs_searched": len(results),
+            "surrogate": surrogate.stats(),
+        } if do_ga else {"enabled": False}),
         "winner": {"id": results[0]["design"].id,
                    "name": results[0]["design"].name,
                    "score": results[0]["score"]},

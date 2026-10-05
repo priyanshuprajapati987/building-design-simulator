@@ -45,6 +45,14 @@ def _print_summary(summary: dict) -> None:
     print(f"WINNER  : {w['id']} - {w['name']} (score {w['score']:.0f}/100)")
     print("FEA     : worst OpenSees column interaction "
           "(0.00-1.00; '-' = verification skipped)")
+    ga = summary.get("genetic") or {}
+    if ga.get("enabled"):
+        sur = ga.get("surrogate") or {}
+        sur_txt = (f"R2 {sur['r2_train']} on {sur['samples']} samples"
+                   if sur.get("trained") else
+                   f"warming up ({sur.get('samples', 0)}/"
+                   f"{sur.get('min_samples', '?')} samples)")
+        print(f"GA      : genetic grid search ON - surrogate {sur_txt}")
     if req.get("warnings"):
         for msg in req["warnings"][:8]:
             print(f"  ! {msg}")
@@ -78,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-images", action="store_true", help="skip charts/drawings")
     ap.add_argument("--json", action="store_true", help="print full summary as JSON")
     ap.add_argument("--seed", type=int, default=None, help="generator seed")
+    ap.add_argument("--no-genetic", action="store_true",
+                    help="skip Phase-3A genetic grid search")
     ap.add_argument("--web", action="store_true", help="launch the Streamlit dashboard")
     ap.add_argument("--version", action="version", version=f"{cfg.APP_NAME} {cfg.VERSION}")
     args = ap.parse_args(argv)
@@ -101,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
                                out_dir=args.out,
                                make_pdf=not args.no_pdf,
                                make_images=not args.no_images,
-                               seed=args.seed)
+                               seed=args.seed,
+                               genetic=not args.no_genetic)
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2

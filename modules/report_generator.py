@@ -439,6 +439,37 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
         _body(pdf, "No design required optimisation - every check passed on the "
                    "first analysis.")
 
+    # Phase-3A: genetic grid search detail
+    ga_any = False
+    for r in results:
+        ga = r.get("genetic")
+        if not ga:
+            continue
+        if not ga_any:
+            _h2(pdf, "Genetic grid search (Phase 3A)")
+            ga_any = True
+        _body(pdf, f"Design {r['design']['id']}: {ga['parent_grid']}  ->  "
+                   f"{ga['best_grid']} | hand score {ga['parent_score']} -> "
+                   f"{ga['best_score']} | {ga['evaluations']} evaluations, "
+                   f"{ga['generations_run']} generations, "
+                   f"{ga['elapsed_ms']} ms (seed {ga['seed']})", size=9)
+        if not ga["improved"]:
+            _body(pdf, "parent grid kept (no better grid found in budget)",
+                  size=9)
+    gsum = summary.get("genetic") or {}
+    sur = gsum.get("surrogate") or {}
+    if gsum.get("enabled"):
+        if sur.get("trained"):
+            _note(pdf, f"ML surrogate: trained on {sur['samples']} evaluated "
+                       f"designs, in-sample R2 {sur['r2_train']} - used only "
+                       "to pre-screen candidate grids; every final score "
+                       "comes from the real structural analysis.", kind="info")
+        else:
+            _note(pdf, f"ML surrogate: warming up "
+                       f"({sur.get('samples', 0)}/{sur.get('min_samples', 15)} "
+                       "samples) - all candidate grids were fully evaluated "
+                       "this run.", kind="info")
+
     # ---------------- 5. green potential ----------------
     _h1(pdf, "5. Green-building potential (indicative)")
     d0 = results[0]["design"]

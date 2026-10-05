@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parent
 # Phase-2 OpenSees FEA verification (set FEA_ENABLED=0 to skip)
 FEA_ENABLED = os.environ.get("FEA_ENABLED", "1").strip().lower() not in (
     "0", "false", "no", "off")
+
+# Phase-3A genetic grid search + ML surrogate pre-screening
+# (set GENETIC_ENABLED=0 to skip)
+GENETIC_ENABLED = os.environ.get("GENETIC_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off")
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 CODES_FILE = DATA_DIR / "codes.json"

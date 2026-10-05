@@ -75,6 +75,50 @@ failures are auto-fixed too - not just reported:
 - Preliminary only - actual SBC governs from a geotechnical
   investigation; the report states this on every page
 
+## Phase 3A (shipped) - genetic grid search + ML surrogate
+
+Phase 1/2 only escalates member sizes - the **grid topology** (bay counts ×
+bay sizes) was fixed at generation. Phase 3A searches it before the
+optimise/re-test loop runs:
+
+- **Genetic search** (`modules/genetic_optimizer.py`) evolves
+  `(bays_x, bay_x, bays_y, bay_y)` around each generated alternative:
+  elitism + tournament-3 + uniform crossover + bay/bay-count mutation,
+  seed-deterministic, adaptive budget (10×6 normally, 6×4 for very large
+  models), early stop after 3 stagnant generations
+- **Genome repair** enforces every hard/soft constraint: 2-12 bays,
+  3.0-9.0 m bay at 0.05 m steps, ±15% length window per axis vs the
+  parent grid, footprint inside the 70% plot-coverage norm (infeasible
+  children fall back to the parent genome - no silent constraint breaks)
+- **Fitness = the same hand-analysis score the pipeline ranks on**
+  (compliance + efficiency + cost + drift) - milliseconds per candidate,
+  **no FEA inside the search**; the winning grid still goes through the
+  full optimise/re-test loop with FEA verification afterwards. Results are
+  reported as *hand score* in the stats, never as final score
+- **ML surrogate pre-screening** (`modules/surrogate.py`): pure-Python
+  ridge regression (19 features: grid, sizes, system, zone, soil, budget...)
+  trained online from every evaluated design (append-only dataset at
+  `output/surrogate/dataset.jsonl`, survives across runs). From generation 1
+  the offspring pool is doubled and only the predicted-best half is really
+  analysed. Below 15 samples it refuses to predict (`predict() -> None`) and
+  every candidate is evaluated honestly; the report always quotes the
+  in-sample R² next to predictions - it is a ranking aid, not a score
+- **Wiring**: `pipeline.run(..., genetic=True/False)`; summary carries a
+  top-level `genetic` block (search stats + surrogate status), every result
+  a per-design `genetic` dict, improvements appear as a `GA` entry at the
+  top of the optimisation log, and the PDF report gains a
+  "Genetic grid search (Phase 3A)" subsection in *4. Optimisation summary*
+- **Toggles**: default ON - `--no-genetic` on the CLI or
+  `GENETIC_ENABLED=0` in `config.py`/env. On tall structures the re-test
+  loop re-verifies the new grid with FEA, so runs can take a little longer;
+  `FEA_ENABLED=0` skips that verification for quick runs
+- Honest limits: hand-score fitness can pick a grid that needs more FEA
+  fix iterations than its parent (search optimises the hand model, FEA
+  re-validates it); surrogate R² is in-sample on a small linear model
+- `tests/test_surrogate.py` + `tests/test_genetic.py` (22 tests) cover
+  fitting/roundtrip/thresholds, repair invariants, determinism, fitness
+  parity with the pipeline, and both pipeline/CLI wiring paths
+
 ## Quickstart
 
 ```bash
@@ -139,8 +183,10 @@ The PDF report repeats this honestly.
   OpenSeesPy FEA cross-check in the optimiser ✅; spread-footing sizing
   with shear/punching/bearing checks ✅; explicit LC1-LC3 combinations in
   hand + FEA ✅; still planned: EnergyPlus energy model
-- **Phase 3 (planned)** - ML surrogate scoring, genetic optimisation of grids,
-  voice input, BIM-ish export (IFC)
+- **Phase 3A (shipped: genetic grid search + ML surrogate)** -
+  genome-repaired GA over bay counts/sizes feeding the re-test loop ✅;
+  online ridge surrogate pre-screening candidates across runs ✅
+- **Phase 3 (planned)** - voice input, BIM-ish export (IFC)
 
 ## Project structure
 
@@ -157,13 +203,15 @@ BuildingSim/
 │   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks + combos + footings
 │   ├── foundation.py        # Phase 2b: IS 456 spread-footing design
 │   ├── fea.py                # Phase 2: OpenSeesPy 3D frame FEA verification
+│   ├── genetic_optimizer.py  # Phase 3A: GA over grid topology (genome repair)
+│   ├── surrogate.py          # Phase 3A: pure-Python ridge surrogate scorer
 │   ├── optimization_engine.py  # re-test loop (hand + FEA failures)
 │   ├── cost_estimator.py
 │   ├── visualization.py     # matplotlib 2D/charts + plotly 3D
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 110 tests (incl. FEA, foundations + combos)
+└── tests/                   # 132 tests (incl. FEA, foundations, GA + surrogate)
 ```
 
 ## License
