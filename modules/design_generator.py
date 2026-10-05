@@ -58,7 +58,9 @@ _SPEC = [
 
 
 def generate(req: Requirements, seed: int | None = None) -> list[Design]:
-    """Returns exactly 3 Design alternatives deterministically (seed optional)."""
+    """Returns exactly 3 Design alternatives deterministically (no RNG -
+    ``seed`` is accepted for API symmetry and only affects the Phase-3A
+    genetic search downstream)."""
     plate_sqft = _target_plate_sqft(req)
     plate_sqm = plate_sqft * SQFT_TO_SQM
 

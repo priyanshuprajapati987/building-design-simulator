@@ -85,7 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-pdf", action="store_true", help="skip PDF generation")
     ap.add_argument("--no-images", action="store_true", help="skip charts/drawings")
     ap.add_argument("--json", action="store_true", help="print full summary as JSON")
-    ap.add_argument("--seed", type=int, default=None, help="generator seed")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="seed for the genetic search (generation itself "
+                         "is deterministic)")
     ap.add_argument("--no-genetic", action="store_true",
                     help="skip Phase-3A genetic grid search")
     ap.add_argument("--web", action="store_true", help="launch the Streamlit dashboard")
@@ -112,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
                                make_pdf=not args.no_pdf,
                                make_images=not args.no_images,
                                seed=args.seed,
-                               genetic=not args.no_genetic)
+                               # None (not False) keeps GENETIC_ENABLED env
+                               # in control unless --no-genetic was passed
+                               genetic=False if args.no_genetic else None)
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2

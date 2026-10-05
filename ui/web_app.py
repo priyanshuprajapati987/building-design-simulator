@@ -306,8 +306,9 @@ with tab_opt:
         st.success("No design needed optimisation - every check passed on "
                    "the first analysis.")
     st.caption("Phase-1 rule-based re-test loop: each fix is an engineering "
-               "action followed by a full re-analysis. ML/genetic optimisation "
-               "comes in Phase 3.")
+               "action followed by a full re-analysis. A 'GA' row (if present) "
+               "is the Phase-3A genetic grid search that ran first; its full "
+               "stats are in the report's section 4.")
 
 # ---------------------------------------------------------------------------
 # report tab

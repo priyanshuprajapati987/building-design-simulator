@@ -31,6 +31,8 @@ N_FEATURES = 19
 MIN_SAMPLES = 15                 # below this we refuse to predict
 RIDGE_LAMBDA = 1e-3
 _DATASET_VERSION = 1
+_MAX_BYTES = 1_000_000           # rotate before retraining gets slow
+_KEEP_ROWS = 6000                # rows retained on rotation (newest)
 
 _DEFAULT_DIR = cfg.OUTPUT_DIR / "surrogate"
 _LOCK = threading.Lock()
@@ -150,6 +152,9 @@ def train(x: list[list[float]], y: list[float],
     n, p = len(x), len(x[0])
     if any(len(row) != p for row in x):
         raise ValueError("ragged feature matrix")
+    if (any(not math.isfinite(v) for row in x for v in row)
+            or any(not math.isfinite(v) for v in y)):
+        raise ValueError("non-finite training data")
 
     means = [sum(row[j] for row in x) / n for j in range(p)]
     stds = []
@@ -189,12 +194,26 @@ def train(x: list[list[float]], y: list[float],
 # dataset (append-only jsonl) + singleton access
 # ---------------------------------------------------------------------------
 
+def _finite_row(obj: dict[str, Any]) -> bool:
+    """True when the stored row is usable for training (no NaN/inf)."""
+    feats = obj.get("features")
+    if not isinstance(feats, list) or len(feats) != N_FEATURES:
+        return False
+    try:
+        return (all(math.isfinite(f) for f in feats)
+                and math.isfinite(obj["score"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def load_dataset(path: Path | None = None) -> list[dict[str, Any]]:
     p = path or dataset_path()
-    if not p.exists():
-        return []
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []                          # missing/unreadable: train on nothing
     rows: list[dict[str, Any]] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
+    for line in raw.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -203,21 +222,43 @@ def load_dataset(path: Path | None = None) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue                        # tolerate a torn last line
         if (obj.get("version") == _DATASET_VERSION
-                and len(obj.get("features", [])) == N_FEATURES):
+                and _finite_row(obj)):
             rows.append(obj)
     return rows
 
 
+def _rotate(p: Path) -> None:
+    """Keep the dataset bounded: retain only the newest _KEEP_ROWS rows."""
+    lines = [ln for ln in p.read_text(encoding="utf-8").splitlines()
+             if ln.strip()]
+    p.write_text("\n".join(lines[-_KEEP_ROWS:]) + "\n", encoding="utf-8")
+
+
 def record(features: list[float], score: float,
            path: Path | None = None) -> None:
-    """Append one evaluated design to the training dataset."""
+    """Append one evaluated design (thread-safe, bounded dataset size).
+
+    Non-finite inputs are dropped here so a single NaN/inf can never poison
+    the training set (a poisoned row once produced r2=nan summaries)."""
+    try:
+        vals = [float(f) for f in features] + [float(score)]
+    except (TypeError, ValueError):
+        return
+    if not all(math.isfinite(v) for v in vals):
+        return
     p = path or dataset_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
     row = {"version": _DATASET_VERSION, "features": [round(f, 6)
-                                                     for f in features],
-           "score": round(float(score), 2)}
-    with p.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+                                                     for f in vals[:-1]],
+           "score": round(vals[-1], 2)}
+    with _LOCK:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with p.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+            if p.stat().st_size > _MAX_BYTES:
+                _rotate(p)
+        except OSError:
+            pass                            # dataset dir unavailable: skip
 
 
 def get_surrogate(min_samples: int = MIN_SAMPLES,
@@ -229,7 +270,10 @@ def get_surrogate(min_samples: int = MIN_SAMPLES,
     p = path or dataset_path()
     try:
         stat = p.stat() if p.exists() else None
-        key = (str(p), stat.st_mtime_ns, stat.st_size) if stat else None
+        # min_samples is part of the key: a stricter caller must not be
+        # served a model cached under a looser threshold
+        key = (str(p), stat.st_mtime_ns, stat.st_size,
+               max(1, min_samples)) if stat else None
     except OSError:
         key = None
     if key is None:

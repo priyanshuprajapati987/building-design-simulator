@@ -91,10 +91,11 @@ optimise/re-test loop runs:
   parent grid, footprint inside the 70% plot-coverage norm (infeasible
   children fall back to the parent genome - no silent constraint breaks)
 - **Fitness = the same hand-analysis score the pipeline ranks on**
-  (compliance + efficiency + cost + drift) - milliseconds per candidate,
-  **no FEA inside the search**; the winning grid still goes through the
-  full optimise/re-test loop with FEA verification afterwards. Results are
-  reported as *hand score* in the stats, never as final score
+  (compliance + efficiency + cost + drift, **including the budget-compliance
+  check** so search ranking is identical to the final ranking) - milliseconds
+  per candidate, **no FEA inside the search**; the winning grid still goes
+  through the full optimise/re-test loop with FEA verification afterwards.
+  Results are reported as *hand score* in the stats, never as final score
 - **ML surrogate pre-screening** (`modules/surrogate.py`): pure-Python
   ridge regression (19 features: grid, sizes, system, zone, soil, budget...)
   trained online from every evaluated design (append-only dataset at
@@ -115,9 +116,11 @@ optimise/re-test loop runs:
 - Honest limits: hand-score fitness can pick a grid that needs more FEA
   fix iterations than its parent (search optimises the hand model, FEA
   re-validates it); surrogate R² is in-sample on a small linear model
-- `tests/test_surrogate.py` + `tests/test_genetic.py` (22 tests) cover
+- `tests/test_surrogate.py` + `tests/test_genetic.py` (33 tests) cover
   fitting/roundtrip/thresholds, repair invariants, determinism, fitness
-  parity with the pipeline, and both pipeline/CLI wiring paths
+  parity with the pipeline (incl. budget check), bounded search loops,
+  error isolation, poison-row/unreadable-dataset hardening, report
+  rendering, and both pipeline/CLI wiring paths
 
 ## Quickstart
 
@@ -211,7 +214,7 @@ BuildingSim/
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 132 tests (incl. FEA, foundations, GA + surrogate)
+└── tests/                   # 144 tests (incl. FEA, foundations, GA + surrogate)
 ```
 
 ## License

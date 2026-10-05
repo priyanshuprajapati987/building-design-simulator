@@ -99,19 +99,21 @@ def repair(g: Genome, parent: Design, req: Requirements) -> Genome:
                                  parent.bays_y, parent.bay_y_m)
     if req.land_area_sqft:
         cap_sqft = COVERAGE_MAX * req.land_area_sqft
-        if parent.plate_sqft <= cap_sqft:      # never worsen an over-cap parent
+        # under cap: a child may grow up to the cap; over cap: never worse
+        # than the parent (monotone - search can only fix, not compound)
+        limit = cap_sqft if parent.plate_sqft <= cap_sqft else parent.plate_sqft
+        plate = bays_x * bay_x * bays_y * bay_y / SQFT_TO_SQM
+        if plate > limit + 1e-6:
+            f = (limit / plate) ** 0.5
+            bay_x = _snap(max(BAY_MIN, bay_x * f))
+            bay_y = _snap(max(BAY_MIN, bay_y * f))
+            bays_x, bay_x = _repair_axis(bays_x, bay_x,
+                                         parent.bays_x, parent.bay_x_m)
+            bays_y, bay_y = _repair_axis(bays_y, bay_y,
+                                         parent.bays_y, parent.bay_y_m)
             plate = bays_x * bay_x * bays_y * bay_y / SQFT_TO_SQM
-            if plate > cap_sqft + 1e-6:
-                f = (cap_sqft / plate) ** 0.5
-                bay_x = _snap(max(BAY_MIN, bay_x * f))
-                bay_y = _snap(max(BAY_MIN, bay_y * f))
-                bays_x, bay_x = _repair_axis(bays_x, bay_x,
-                                             parent.bays_x, parent.bay_x_m)
-                bays_y, bay_y = _repair_axis(bays_y, bay_y,
-                                             parent.bays_y, parent.bay_y_m)
-                plate = bays_x * bay_x * bays_y * bay_y / SQFT_TO_SQM
-                if plate > cap_sqft + 1e-6:
-                    return genome_from(parent)     # honest fallback
+            if plate > limit + 1e-6:
+                return genome_from(parent)     # honest fallback
     return {"bays_x": float(bays_x), "bay_x": bay_x,
             "bays_y": float(bays_y), "bay_y": bay_y}
 
@@ -124,11 +126,14 @@ def apply_genome(parent: Design, g: Genome) -> Design:
                 bays_x=int(g["bays_x"]), bays_y=int(g["bays_y"]),
                 bay_x_m=float(g["bay_x"]), bay_y_m=float(g["bay_y"]),
                 column_boost=0, footing_bump=0, footing_t_mm=0)
+    # mirror the generator: secondary beams exist only when the parent spec
+    # has them AND the x bay exceeds 6.0 m (design_generator.generate)
+    d.secondary = bool(parent.secondary) and d.bay_x_m > 6.0
     panel = d.bay_x_m / 2 if d.secondary else d.bay_x_m
     d.slab_t_mm = design_generator._slab_t(panel)
     d.beam_d_mm = design_generator._beam_d(d.bay_x_m)
-    if d.secondary:
-        d.sec_beam_d_mm = design_generator._beam_d(d.bay_x_m / 2)
+    d.sec_beam_d_mm = (design_generator._beam_d(d.bay_x_m / 2)
+                       if d.secondary else 0)
     if d.core:
         d.core_lx_m = max(round(min(0.35 * d.len_x_m, 10.0), 1), 4.0)
         d.core_ly_m = max(round(min(0.40 * d.len_y_m, 8.0), 1), 3.5)
@@ -142,13 +147,18 @@ def apply_genome(parent: Design, g: Genome) -> Design:
 def fitness(d: Design, req: Requirements) -> float:
     """Score a candidate exactly like the pipeline ranks designs.
 
+    Includes the budget-compliance check (shared ``apply_budget_check``)
+    so GA ranking is identical to the final ranking - without it, designs
+    on opposite sides of the budget boundary were ranked wrongly.
+
     No FEA (too slow for a search loop) - the winning grid goes through the
     full optimise/re-test loop afterwards anyway. Errors -> 0.0 so one bad
     genome can never kill a run."""
     try:
         analysis = analyze(d, req)
         cost = cost_estimator.estimate(d, req)
-        from .pipeline import score_design
+        from .pipeline import apply_budget_check, score_design
+        apply_budget_check(analysis, cost, req)
         return float(score_design(analysis, cost, req.budget_crores))
     except Exception:
         return 0.0
@@ -213,9 +223,8 @@ def evolve(parent: Design, req: Requirements, *, seed: int = 0,
     improves with the growing dataset)."""
     t0 = time.perf_counter()
     big = parent.floors * parent.n_columns > _BIG_MODEL
-    pop = pop or (6 if big else 10)
-    gens = gens or (4 if big else 6)
-    pop = max(pop, _ELITE + 2)
+    pop = (6 if big else 10) if pop is None else max(int(pop), _ELITE + 2)
+    gens = (4 if big else 6) if gens is None else max(int(gens), 1)
     rng = random.Random(seed)
 
     evaluated: dict[tuple, float] = {}
@@ -239,7 +248,11 @@ def evolve(parent: Design, req: Requirements, *, seed: int = 0,
 
     members: list[Genome] = [parent_g]
     seen = {_key(parent_g)}
-    while len(members) < pop:
+    attempts = 0
+    # bounded: a tiny reachable genome space (e.g. min-bay parent with a
+    # small requested pop) must not spin forever trying to fill the pool
+    while len(members) < pop and attempts < pop * 20:
+        attempts += 1
         child = repair(_mutate(rng, parent_g), parent, req)
         if _key(child) not in seen:
             members.append(child)
@@ -296,7 +309,8 @@ def evolve(parent: Design, req: Requirements, *, seed: int = 0,
                 members.append(child)
                 seen.add(_key(child))
 
-        # keep population size: refill with fresh mutants if crossover deduped
+        # refill if the initial fill (tiny genome space) or heavy dedup left
+        # the pool shorter than the requested population
         guard = 0
         while len(members) < pop and guard < pop * 4:
             guard += 1
@@ -324,6 +338,7 @@ def evolve(parent: Design, req: Requirements, *, seed: int = 0,
         "enabled": True,
         "seed": seed,
         "population": pop,
+        "pool_size": len(members),
         "generations_run": generations_run,
         "evaluations": evals,
         "parent_score": round(parent_score, 2),

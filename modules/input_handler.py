@@ -5,6 +5,7 @@ parser is the single front door for both typed and spoken requirements.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -206,7 +207,13 @@ def parse_dict(data: dict[str, Any]) -> dict[str, Any]:
         elif key == "floors":
             out[key] = max(1, int(val))
         elif key in ("land_area_sqft", "budget_crores", "floor_h_m", "vb"):
-            out[key] = float(val)
+            v = float(val)
+            # NaN/inf slip through float() silently and poison every later
+            # stage (cost ratios, surrogate rows, JSON summaries) - reject here
+            if not math.isfinite(v):
+                raise ValueError(f"{key} must be a finite number "
+                                 f"(got {val!r})")
+            out[key] = v
         elif key == "units_per_floor":
             out[key] = max(1, int(val))
         elif key == "terrain_cat":

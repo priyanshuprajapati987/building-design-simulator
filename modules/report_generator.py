@@ -375,15 +375,22 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                   "reduce finishes, parking depth, or structural grade.",
                   kind="info" if c["within_budget"] else "warn")
 
-        if r["fixes"]:
+        # Section-3 table is the re-test loop only: the GA row (long grid
+        # strings) overflows the page-width cells and is reported in full
+        # in section 4 instead
+        loop_fixes = [f for f in r["fixes"] if f["iteration"] != "GA"]
+        if loop_fixes:
             _h2(pdf, "Optimisation log (re-test loop)")
             fix_rows = [[f["iteration"], f["issue"], str(f["before"]), f["action"]]
-                        for f in r["fixes"]]
+                        for f in loop_fixes]
             _grid(pdf, ["Iter", "Failed check", "Before", "Action applied"],
                   fix_rows, [12, 58, 20, 80], aligns=["C", "L", "R", "L"], size=8)
-        else:
+        elif not r["fixes"]:
             _note(pdf, "Optimisation log: all checks passed on first analysis - "
                        "no fixes needed.")
+        else:
+            _note(pdf, "Optimisation log: no re-test-loop fixes - the genetic "
+                       "grid search result is reported in section 4.")
 
         _h2(pdf, "Drawings")
         _image_if(pdf, images.get(d["id"], {}).get("plan"), w=150)
@@ -442,8 +449,15 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
     # Phase-3A: genetic grid search detail
     ga_any = False
     for r in results:
-        ga = r.get("genetic")
-        if not ga:
+        ga = r.get("genetic") or {}
+        if ga.get("error"):                # evolve failed: report, keep going
+            if not ga_any:
+                _h2(pdf, "Genetic grid search (Phase 3A)")
+                ga_any = True
+            _note(pdf, f"Design {r['design']['id']}: genetic search skipped "
+                       f"({ga['error']}) - parent grid kept.", kind="warn")
+            continue
+        if not ga.get("enabled") or "parent_grid" not in ga:
             continue
         if not ga_any:
             _h2(pdf, "Genetic grid search (Phase 3A)")
@@ -453,7 +467,7 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                    f"{ga['best_score']} | {ga['evaluations']} evaluations, "
                    f"{ga['generations_run']} generations, "
                    f"{ga['elapsed_ms']} ms (seed {ga['seed']})", size=9)
-        if not ga["improved"]:
+        if not ga.get("improved"):
             _body(pdf, "parent grid kept (no better grid found in budget)",
                   size=9)
     gsum = summary.get("genetic") or {}

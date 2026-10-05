@@ -117,3 +117,60 @@ def test_reset_cache_reloads():
     S.reset_cache()
     fresh = S.get_surrogate()
     assert fresh is not first and fresh.r2 == first.r2
+
+
+# ---------------------------------------------------------------------------
+# bug-hunt hardening: poison rows, unreadable dataset, rotation, cache key
+# ---------------------------------------------------------------------------
+
+def test_record_skips_non_finite():
+    S.record([1.0] * S.N_FEATURES, 50.0)
+    S.record([float("nan")] * S.N_FEATURES, 50.0)
+    S.record([1.0] * (S.N_FEATURES - 1) + [float("inf")], 50.0)
+    S.record([1.0] * S.N_FEATURES, float("nan"))
+    S.record([1.0] * S.N_FEATURES, float("inf"))
+    rows = S.load_dataset()
+    assert len(rows) == 1                          # poison never lands
+    assert rows[0]["score"] == 50.0
+
+
+def test_train_rejects_non_finite():
+    x, y = _linear_rows()
+    x[3][2] = float("nan")
+    with pytest.raises(ValueError):
+        S.train(x, y)
+    x, y = _linear_rows()
+    y[5] = float("inf")
+    with pytest.raises(ValueError):
+        S.train(x, y)
+
+
+def test_unreadable_dataset_fails_soft():
+    # dataset.jsonl exists as a *directory* -> reads raise OSError;
+    # every entry point must degrade, not raise
+    S.dataset_path().mkdir()
+    assert S.load_dataset() == []
+    assert S.get_surrogate() is None
+    st = S.stats()
+    assert st["samples"] == 0 and st["trained"] is False
+    assert st["r2_train"] is None
+    S.record([1.0] * S.N_FEATURES, 50.0)           # must not raise
+
+
+def test_dataset_rotation_keeps_newest(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "_MAX_BYTES", 500)      # tiny threshold
+    monkeypatch.setattr(S, "_KEEP_ROWS", 10)
+    for i in range(30):
+        S.record([float(i % 7)] * S.N_FEATURES, 50.0 + i)
+    rows = S.load_dataset()
+    assert len(rows) <= 10                         # bounded despite 30 writes
+    assert rows[0]["score"] == 70.0                # oldest rows evicted
+    assert rows[-1]["score"] == 79.0               # newest survived
+
+
+def test_cache_key_includes_min_samples():
+    for i in range(25):
+        S.record([float(i % 7)] * S.N_FEATURES, 50.0 + i)
+    assert S.get_surrogate(min_samples=15) is not None
+    # a stricter threshold must NOT be served the cached looser model
+    assert S.get_surrogate(min_samples=999) is None

@@ -85,6 +85,16 @@ def test_parse_dict_rejects_unknown_zone():
         input_handler.parse_dict({"seismic_zone": "IX"})
 
 
+def test_parse_dict_rejects_non_finite_numbers():
+    # regression: float("nan") used to slip through and poison every later
+    # stage (cost ratios, surrogate rows, JSON summaries)
+    for key in ("budget_crores", "land_area_sqft", "floor_h_m", "vb"):
+        with pytest.raises(ValueError):
+            input_handler.parse_dict({key: float("nan")})
+        with pytest.raises(ValueError):
+            input_handler.parse_dict({key: float("inf")})
+
+
 def test_parse_dict_ignores_unknown_keys():
     out = input_handler.parse_dict({"city": "Pune", "hacker_key": 1})
     assert out == {"city": "Pune"}

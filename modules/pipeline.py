@@ -52,6 +52,30 @@ def score_design(analysis: dict, cost: dict, budget_cr: float | None) -> float:
     return round(comp + s_u + s_c + s_d, 1)
 
 
+def apply_budget_check(analysis: dict, cost: dict, req: Requirements) -> None:
+    """Append budget compliance as an explicit check (feeds the score).
+
+    Shared by the pipeline loop AND the genetic fitness function so both
+    rank designs under identical rules - budget-aware ranking parity was a
+    Phase-3A bug-hunt fix (fitness previously ignored budget and inverted
+    rankings near the budget boundary)."""
+    if cost.get("within_budget") is None:
+        return
+    ok = cost["within_budget"]
+    analysis["checks"].append({
+        "name": "Budget compliance",
+        "value": cost["total_crores"],
+        "unit": "Cr",
+        "limit": f"<= {req.budget_crores:g} Cr",
+        "passed": bool(ok),
+        "detail": (f"used {cost['total_inr'] / cost['budget_inr']:.0%} of budget"
+                   if ok else
+                   f"over by Rs. {(cost['total_inr'] - cost['budget_inr']) / 1e7:.2f} Cr"),
+    })
+    analysis["passed"] = sum(1 for c in analysis["checks"] if c["passed"])
+    analysis["total_checks"] = len(analysis["checks"])
+
+
 # ---------------------------------------------------------------------------
 # main entry
 # ---------------------------------------------------------------------------
@@ -73,38 +97,23 @@ def run(text: str | None = None,
 
     designs: list[Design] = design_generator.generate(req, seed=seed)
 
-    # ---- footprint sanity warnings (post-grid-generation) ------------------
-    if req.land_area_sqft:
-        plate_max = max(d.plate_sqft for d in designs)
-        if plate_max > 0.70 * req.land_area_sqft:
-            req.warnings.append(
-                f"generated footprint {plate_max:.0f} sqft exceeds 70% of the "
-                f"{req.land_area_sqft:.0f} sqft plot - reduce units/coverage "
-                f"or increase plot area")
-    if req.building_type == "residential" and req.units_per_floor:
-        codes = cfg.get_codes()
-        unit_area = codes["unit_areas_sqft"]["residential_default"]
-        implied = req.units_per_floor * unit_area * 0.85
-        actual = max(d.plate_sqft for d in designs)
-        if actual < 0.70 * implied:
-            req.warnings.append(
-                f"footprint {actual:.0f} sqft is below the ~{implied:.0f} sqft "
-                f"implied by {req.units_per_floor} units/floor - grid is "
-                f"capped at 12 bays (Phase-1 limit)")
-
     results: list[dict[str, Any]] = []
     for d in designs:
         # Phase-3A: search the structural grid first (hand-score fitness,
         # milliseconds per candidate); the ladder below re-runs on the winner
         ga_stats: dict[str, Any] | None = None
         if do_ga:
-            ga_d, ga_stats = genetic_optimizer.evolve(d, req, seed=seed or 0)
-            if ga_stats["improved"]:
-                d = ga_d
+            try:
+                ga_d, ga_stats = genetic_optimizer.evolve(d, req, seed=seed or 0)
+                if ga_stats.get("improved"):
+                    d = ga_d
+            except Exception as exc:            # search must never kill a run
+                ga_stats = {"enabled": True,
+                            "error": f"{type(exc).__name__}: {exc}"}
         # optimize() also runs the Phase-2 OpenSees FEA verification and
         # appends its 4 checks (analysis["fea"] carries the raw result)
         opt_d, analysis, fixes = optimization_engine.optimize(d, req)
-        if ga_stats and ga_stats["improved"]:
+        if ga_stats and ga_stats.get("improved"):
             fixes = [{"iteration": "GA", "issue": "Grid topology",
                       "before": ga_stats["parent_grid"],
                       "action": (f"genetic search -> {ga_stats['best_grid']} "
@@ -114,24 +123,33 @@ def run(text: str | None = None,
         cost = cost_estimator.estimate(opt_d, req)
 
         # budget becomes an explicit check so it feeds the compliance score
-        if cost.get("within_budget") is not None:
-            ok = cost["within_budget"]
-            analysis["checks"].append({
-                "name": "Budget compliance",
-                "value": cost["total_crores"],
-                "unit": "Cr",
-                "limit": f"<= {req.budget_crores:g} Cr",
-                "passed": bool(ok),
-                "detail": (f"used {cost['total_inr'] / cost['budget_inr']:.0%} of budget"
-                           if ok else
-                           f"over by Rs. {(cost['total_inr'] - cost['budget_inr']) / 1e7:.2f} Cr"),
-            })
-            analysis["passed"] = sum(1 for c in analysis["checks"] if c["passed"])
-            analysis["total_checks"] = len(analysis["checks"])
+        apply_budget_check(analysis, cost, req)
 
         score = score_design(analysis, cost, req.budget_crores)
         results.append({"design": opt_d, "analysis": analysis, "cost": cost,
                         "fixes": fixes, "score": score, "genetic": ga_stats})
+
+    # ---- footprint sanity warnings (post-search: final grids win) ----------
+    # computed AFTER the GA/optimise ladder so the warning reflects the
+    # design that is actually reported (a generated over-cap footprint that
+    # the search clamped no longer warns, and vice versa)
+    if req.land_area_sqft:
+        plate_max = max(r["design"].plate_sqft for r in results)
+        if plate_max > 0.70 * req.land_area_sqft:
+            req.warnings.append(
+                f"footprint {plate_max:.0f} sqft exceeds 70% of the "
+                f"{req.land_area_sqft:.0f} sqft plot - reduce units/coverage "
+                f"or increase plot area")
+    if req.building_type == "residential" and req.units_per_floor:
+        codes = cfg.get_codes()
+        unit_area = codes["unit_areas_sqft"]["residential_default"]
+        implied = req.units_per_floor * unit_area * 0.85
+        actual = max(r["design"].plate_sqft for r in results)
+        if actual < 0.70 * implied:
+            req.warnings.append(
+                f"footprint {actual:.0f} sqft is below the ~{implied:.0f} sqft "
+                f"implied by {req.units_per_floor} units/floor - grid is "
+                f"capped at 12 bays (Phase-1 limit)")
 
     results.sort(key=lambda r: (-r["score"], r["cost"]["total_inr"]))
     for i, r in enumerate(results, start=1):
