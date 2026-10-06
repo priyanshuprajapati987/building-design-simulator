@@ -23,7 +23,7 @@
 | 6. Cost | City rate (₹/sqft) × system + zone + soil factors, breakdown structure/finishes/MEP/other, budget check |
 | 7. Energy | ECBC-aligned degree-day model: EUI, annual kWh + ₹ cost per alternative (see Phase 2c) |
 | 8. Score & rank | 40% compliance + 25% member efficiency + 20% cost + 15% drift margin |
-| 9. Output | Floor plan, elevation, seismic + cost + score charts, **interactive 3D (HTML)**, `summary.json`, **PDF report** |
+| 9. Output | Floor plan, elevation, seismic + cost + score charts, **interactive 3D (HTML)**, `summary.json`, **PDF report**, **IFC4 model** |
 
 ## Phase 2 (shipped) - OpenSeesPy FEA verification
 
@@ -149,6 +149,49 @@ optimise/re-test loop runs:
   error isolation, poison-row/unreadable-dataset hardening, report
   rendering, and both pipeline/CLI wiring paths
 
+## Phase 3B (shipped) - IFC4 export (BIM-ish handoff)
+
+Every run also writes one **IFC4** model per design under `out/ifc/`
+(`design_A.ifc` ... `design_C.ifc`), openable in common viewers
+(BIMvision, BIMcollab, FreeCAD, Revit, online viewers):
+
+- **Hand-rolled ISO-10303-21 (STEP) writer** (`modules/ifc_export.py`) -
+  zero runtime dependencies (no IfcOpenShell required at runtime). The
+  entity stream follows the printed IFC4 spec: spatial tree
+  `IfcProject -> IfcSite -> IfcBuilding -> IfcBuildingStorey`, per-storey
+  `IfcRelContainedInSpatialStructure`, each solid an
+  `IfcExtrudedAreaSolid` wrapped in an `IfcShapeRepresentation('Body')`
+- **Geometry from the *analysed* design**: full-plate slabs, grid columns
+  (per-floor section straight from the member schedule), per-bay beam
+  segments (main beams span the full bay; secondary beams at mid-grid when
+  the design uses them - panel = bay/2), the 4-wall structural core ring
+  when `core=True`, and spread-footing pads under every column at the
+  analysed `B_mm x thickness_mm` (top at grade, corner/edge/interior
+  classification matching the drawings)
+- **IFC compressed GUIDs**: 128-bit MD5 digest -> the IFC 22-char custom
+  base64 alphabet (first char always `0-3`), seeded per element so a
+  re-export of the same design is byte-identical for a fixed timestamp;
+  equality with `ifcopenshell.guid.compress()` is asserted in tests
+- **`Pset_BuildingSim`** on the building carries the run's headline
+  numbers: city, building type, structural system, seismic zone, floors,
+  score, estimated cost, EUI
+- **Wiring**: on by default - `pipeline.run(..., make_ifc=False)` or
+  `--no-ifc` to skip; `summary["files"]["ifc"]` maps design id -> path and
+  failures land in `summary["ifc_error"]` (an IFC error never kills a
+  run); the Streamlit report tab gains per-design download buttons
+- **Validated**: the exported files open in IfcOpenShell and pass
+  `ifcopenshell.validate` (schema + attributes + EXPRESS WHERE rules)
+  with 0 errors - plus a manual open in a common viewer
+- Honest limits: concept-stage only - extruded-box geometry, no
+  materials, reinforcement, quantities (Qto) sets or drawings; it is a
+  faithful BIM-ish handoff of what the engine computed, not a
+  documentation-grade BIM model
+- `tests/test_ifc_export.py` (15 tests): GUID charset/format + reference
+  match, header, referential integrity, entity counts + storey
+  elevations, core+secondary coverage, pset values, determinism,
+  minimal-input edge case, IfcOpenShell validate + express rules, and
+  pipeline on/off wiring
+
 ## Quickstart
 
 ```bash
@@ -218,7 +261,9 @@ The PDF report repeats this honestly.
 - **Phase 3A (shipped: genetic grid search + ML surrogate)** -
   genome-repaired GA over bay counts/sizes feeding the re-test loop ✅;
   online ridge surrogate pre-screening candidates across runs ✅
-- **Phase 3 (planned)** - voice input, BIM-ish export (IFC)
+- **Phase 3B (shipped: IFC4 export)** - hand-rolled STEP writer emitting
+  the spatial tree, analysed geometry and `Pset_BuildingSim` per design ✅
+- **Phase 3 (planned)** - voice input
 
 ## Project structure
 
@@ -242,9 +287,10 @@ BuildingSim/
 │   ├── cost_estimator.py
 │   ├── visualization.py     # matplotlib 2D/charts + plotly 3D
 │   ├── report_generator.py  # fpdf2 PDF
+│   ├── ifc_export.py        # Phase 3B: hand-rolled IFC4 STEP writer (zero deps)
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 161 tests (incl. FEA, foundations, energy, GA + surrogate)
+└── tests/                   # 176 tests (incl. FEA, foundations, energy, GA, IFC)
 ```
 
 ## License

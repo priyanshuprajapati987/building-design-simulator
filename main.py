@@ -61,9 +61,16 @@ def _print_summary(summary: dict) -> None:
         print(f"\nOutputs : {files['dir']}")
         if "pdf" in files:
             print(f"  PDF   : {files['pdf']}")
+        ifc = files.get("ifc") or {}
+        if ifc:
+            print(f"  IFC   : {len(ifc)} model(s) in "
+                  f"{Path(next(iter(ifc.values()))).parent} "
+                  f"(open in any IFC viewer)")
         print("  3D    : design_*_3d.html (open in a browser)")
     if summary.get("pdf_error"):
         print(f"  (PDF failed: {summary['pdf_error']})")
+    if summary.get("ifc_error"):
+        print(f"  (IFC failed: {summary['ifc_error']})")
     print(f"\n{cfg.DISCLAIMER}\n")
 
 
@@ -84,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="output directory (default: output/run_<timestamp>)")
     ap.add_argument("--no-pdf", action="store_true", help="skip PDF generation")
     ap.add_argument("--no-images", action="store_true", help="skip charts/drawings")
+    ap.add_argument("--no-ifc", action="store_true",
+                    help="skip IFC4 model export (Phase-3B)")
     ap.add_argument("--json", action="store_true", help="print full summary as JSON")
     ap.add_argument("--seed", type=int, default=None,
                     help="seed for the genetic search (generation itself "
@@ -113,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                                out_dir=args.out,
                                make_pdf=not args.no_pdf,
                                make_images=not args.no_images,
+                               make_ifc=not args.no_ifc,
                                seed=args.seed,
                                # None (not False) keeps GENETIC_ENABLED env
                                # in control unless --no-genetic was passed

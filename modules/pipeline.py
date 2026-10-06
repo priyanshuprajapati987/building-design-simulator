@@ -14,6 +14,7 @@ from . import (
     design_generator,
     energy_model,
     genetic_optimizer,
+    ifc_export,
     input_handler,
     optimization_engine,
     report_generator,
@@ -86,12 +87,14 @@ def run(text: str | None = None,
         out_dir: str | Path | None = None,
         make_pdf: bool = True,
         make_images: bool = True,
+        make_ifc: bool = True,
         seed: int | None = None,
         genetic: bool | None = None) -> dict[str, Any]:
     """Run the full pipeline. Returns the summary dict (also saved as JSON).
 
-    ``genetic`` overrides the GENETIC_ENABLED config flag (Phase-3A grid
-    search); None = follow config."""
+    ``make_ifc`` (Phase-3B) writes one IFC4 model per design under
+    ``out/ifc/``; ``genetic`` overrides the GENETIC_ENABLED config flag
+    (Phase-3A grid search); None = follow config."""
     do_ga = cfg.GENETIC_ENABLED if genetic is None else bool(genetic)
     req: Requirements = input_handler.load(text, data)
     requirement_analyzer.analyze(req)
@@ -232,6 +235,26 @@ def run(text: str | None = None,
         except Exception as exc:                    # PDF must never kill the run
             summary["files"] = {}
             summary["pdf_error"] = f"{type(exc).__name__}: {exc}"
+
+    # ---- IFC (Phase-3B) ----------------------------------------------------
+    if make_ifc:
+        ifc_dir = out / "ifc"
+        ifc_files: dict[str, str] = {}
+        ifc_errors: dict[str, str] = {}
+        for sr in ser_results:                     # IFC must never kill a run
+            try:
+                p = ifc_export.export(
+                    sr["design"], sr["analysis"], req,
+                    ifc_dir / f"design_{sr['design']['id']}.ifc",
+                    score=sr["score"], cost=sr["cost"],
+                    energy=sr.get("energy"))
+                ifc_files[sr["design"]["id"]] = str(p)
+            except Exception as exc:
+                ifc_errors[sr["design"]["id"]] = f"{type(exc).__name__}: {exc}"
+        if ifc_files:
+            summary.setdefault("files", {})["ifc"] = ifc_files
+        if ifc_errors:
+            summary["ifc_error"] = ifc_errors
 
     file_list = [str(p) for p in sorted(out.glob("*"))]
     summary.setdefault("files", {})

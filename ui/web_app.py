@@ -350,8 +350,21 @@ with tab_rep:
                 width="stretch"):
             break
 
+    ifc_files = sorted((out_dir / "ifc").glob("*.ifc")) \
+        if (out_dir / "ifc").exists() else []
+    if ifc_files:
+        i1, i2, i3 = st.columns(3)
+        for p, col in zip(ifc_files, (i1, i2, i3), strict=False):
+            col.download_button(f"⬇  IFC {p.stem.replace('design_', '')}",
+                                data=p.read_bytes(), file_name=p.name,
+                                mime="application/x-step", width="stretch")
+    else:
+        st.info("IFC models not generated (see run settings)")
+
     st.markdown("### Output files")
     for p in sorted(out_dir.glob("*")):
+        st.write(f"`{p}`  ({p.stat().st_size / 1024:.0f} KB)")
+    for p in sorted(out_dir.glob("ifc/*.ifc")):
         st.write(f"`{p}`  ({p.stat().st_size / 1024:.0f} KB)")
 
     st.warning(cfg.DISCLAIMER)
