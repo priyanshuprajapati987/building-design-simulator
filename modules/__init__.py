@@ -2,6 +2,7 @@
 __all__ = [
     "cost_estimator",
     "design_generator",
+    "energy_model",
     "input_handler",
     "models",
     "optimization_engine",

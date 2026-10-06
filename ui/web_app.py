@@ -183,6 +183,7 @@ with tab_cmp:
         "Slab (mm)": r["design"]["slab_t_mm"],
         "Core": "yes" if r["design"]["core"] else "-",
         "Cost (₹ Cr)": round(r["cost"]["total_inr"] / 1e7, 2),
+        "EUI (kWh/m²·yr)": (r.get("energy") or {}).get("eui_kwh_m2yr", "-"),
         "Checks": f"{r['analysis']['passed']}/{r['analysis']['total_checks']}",
         "Max util": r["analysis"]["max_utilisation"],
         "Drift": r["analysis"]["drift"]["max_index"],

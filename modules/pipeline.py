@@ -12,6 +12,7 @@ import config as cfg
 from . import (
     cost_estimator,
     design_generator,
+    energy_model,
     genetic_optimizer,
     input_handler,
     optimization_engine,
@@ -121,13 +122,15 @@ def run(text: str | None = None,
                                  f"{ga_stats['best_score']})")},
                      *fixes]
         cost = cost_estimator.estimate(opt_d, req)
+        energy = energy_model.model(req, opt_d)
 
         # budget becomes an explicit check so it feeds the compliance score
         apply_budget_check(analysis, cost, req)
 
         score = score_design(analysis, cost, req.budget_crores)
         results.append({"design": opt_d, "analysis": analysis, "cost": cost,
-                        "fixes": fixes, "score": score, "genetic": ga_stats})
+                        "energy": energy, "fixes": fixes, "score": score,
+                        "genetic": ga_stats})
 
     # ---- footprint sanity warnings (post-search: final grids win) ----------
     # computed AFTER the GA/optimise ladder so the warning reflects the
@@ -195,6 +198,7 @@ def run(text: str | None = None,
             "design": dd,
             "analysis": r["analysis"],
             "cost": r["cost"],
+            "energy": r.get("energy"),
             "fixes": r["fixes"],
             "score": r["score"],
             "rank": r["rank"],

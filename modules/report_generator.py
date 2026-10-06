@@ -253,16 +253,18 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
     # ---------------- 2. comparison ----------------
     _h1(pdf, "2. Comparison of the three alternatives")
     headers = ["ID", "Design", "System", "Bay (m)", "Floors", "Height", "Cost (Cr)",
-               "Score", "Rank"]
+               "EUI", "Score", "Rank"]
     rows = []
     for r in results:
         d = r["design"]
+        en = r.get("energy") or {}
         rows.append([d["id"], d["name"], d["system"], f"{d['bay_x_m']:g}",
                      d["floors"], f"{d['height_m']:.1f} m",
                      f"{r['cost']['total_inr'] / 1e7:.2f}",
+                     f"{en['eui_kwh_m2yr']:.0f}" if en else "-",
                      f"{r['score']:.0f}", r["rank"]])
-    _grid(pdf, headers, rows, [7, 44, 30, 14, 12, 16, 17, 13, 10],
-          aligns=["C", "L", "L", "C", "C", "C", "R", "C", "C"])
+    _grid(pdf, headers, rows, [7, 40, 27, 13, 11, 15, 15, 12, 12, 9],
+          aligns=["C", "L", "L", "C", "C", "C", "R", "R", "C", "C"])
 
     winner = results[0]
     cheapest = min(results, key=lambda r: r["cost"]["total_inr"])
@@ -354,6 +356,27 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                    f"max utilisation {a['max_utilisation']}, drift "
                    f"{a['drift']['max_index']} <= {a['drift']['limit']}).",
                size=9)
+
+        # ---- Phase-2 preliminary energy model ----------------------------
+        en = r.get("energy")
+        if en:
+            _h2(pdf, "Energy estimate (preliminary ECBC degree-day model)")
+            bd = en["breakdown_kwh"]
+            _grid(pdf,
+                  ["EUI (kWh/m2-yr)", "Annual (kWh)", "Energy cost (Rs/yr)",
+                   "Cooling", "Lighting", "Plug + others"],
+                  [[en["eui_kwh_m2yr"], f"{en['annual_kwh']:,}",
+                    f"{en['annual_cost_inr']:,}",
+                    f"{bd['cooling'] + bd['fans_pumps']:,}",
+                    f"{bd['lighting']:,}",
+                    f"{bd['plug_appliances'] + bd['heating']:,}"]],
+                  [28, 24, 28, 22, 22, 26],
+                  aligns=["C"] * 6, size=8.5)
+            cl = en["climate"]
+            _body(pdf, f"Engine: {en['engine']} - {en['note']}. "
+                       f"Climate {cl['city']}: design {cl['design_db_c']} C, "
+                       f"CDD24 {cl['cdd24']}, HDD16 {cl['hdd16']} "
+                       f"(kWh figures include HVAC fans/pumps).", size=8)
 
         # ---- Phase-2 OpenSees FEA verification ---------------------------
         fea_r = a.get("fea") or {}
@@ -544,8 +567,9 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
           ],
           [42, 55, 78], aligns=["L", "L", "L"], size=8.5)
     _note(pdf, "These are heuristic potentials, not certified LEED/GRIHA points. "
-               "Formal green certification needs a dedicated energy model "
-               "(EnergyPlus in Phase 2).", kind="warn")
+               "A preliminary annual energy estimate (degree-day model) is in "
+               "sections 2 and 3; formal certification needs an hourly "
+               "simulation engine such as EnergyPlus.", kind="warn")
 
     # ---------------- 6. codes ----------------
     _h1(pdf, "6. Codes, methods and honesty note")
@@ -557,20 +581,27 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                                     "design pressure pd, overturning check"],
            ["IS 875 (Part 2):2015", "Live loads by occupancy (residential 2.0, "
                                     "office 2.5, parking 4.0 kN/m2)"],
-           ["IS 456:2000", "RC member sizing (limit-state approximations: "
-                           "0.136 fck bd2 moment capacity, column capacity "
-                           "0.4fck Ag + 0.67fy Asc, L/d serviceability)"],
-           ["Simplified methods", "Triangular seismic distribution, portal-frame "
-                                  "drift, effective-width column stiffness - "
-                                  "documented simplifications for concept stage"]],
+            ["IS 456:2000", "RC member sizing (limit-state approximations: "
+                            "0.136 fck bd2 moment capacity, column capacity "
+                            "0.4fck Ag + 0.67fy Asc, L/d serviceability)"],
+            ["Energy (preliminary)", "ECBC-aligned degree-day model: envelope "
+                                     "UA x CDD24/HDD16 + solar + lighting/plug "
+                                     "loads, EER 3.4 cooling / COP 2.8 heating "
+                                     "- comparison only, not a certified "
+                                     "energy model"],
+            ["Simplified methods", "Triangular seismic distribution, portal-frame "
+                                   "drift, effective-width column stiffness - "
+                                   "documented simplifications for concept stage"]],
           [50, 126], aligns=["L", "L"], size=8.5)
     pdf.ln(2)
     _body(pdf,
           "Honesty note: this engine performs SCREENING-LEVEL checks with "
-          "conservative simplifications. It does not do finite-element analysis, "
-          "response-spectrum combination, P-Delta effects, foundation design, "
-          "or seismic detailing (which decides R actually achieved). Numbers "
-          "here are for comparing alternatives and budgeting - they are NOT "
+          "conservative simplifications. It does not do response-spectrum "
+          "combination, P-Delta effects, detailed foundation design (only "
+          "screening spread footings), or seismic detailing (which decides R "
+          "actually achieved). Hand formulas are cross-checked by a "
+          "linear-static OpenSees frame model where available. Numbers here "
+          "are for comparing alternatives and budgeting - they are NOT "
           "construction values.", size=9.5)
     _note(pdf, cfg.DISCLAIMER, kind="warn")
 

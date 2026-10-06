@@ -21,8 +21,9 @@
 | 4. Code checks | Seismic (equivalent static), wind, columns/beams/slab capacity + drift + overturning (IS 1893 / IS 875 / IS 456) |
 | 5. Optimise | Rule-based re-test loop: bigger columns / deeper beams / thicker slab / add core - then re-analyse |
 | 6. Cost | City rate (₹/sqft) × system + zone + soil factors, breakdown structure/finishes/MEP/other, budget check |
-| 7. Score & rank | 40% compliance + 25% member efficiency + 20% cost + 15% drift margin |
-| 8. Output | Floor plan, elevation, seismic + cost + score charts, **interactive 3D (HTML)**, `summary.json`, **PDF report** |
+| 7. Energy | ECBC-aligned degree-day model: EUI, annual kWh + ₹ cost per alternative (see Phase 2c) |
+| 8. Score & rank | 40% compliance + 25% member efficiency + 20% cost + 15% drift margin |
+| 9. Output | Floor plan, elevation, seismic + cost + score charts, **interactive 3D (HTML)**, `summary.json`, **PDF report** |
 
 ## Phase 2 (shipped) - OpenSeesPy FEA verification
 
@@ -74,6 +75,32 @@ failures are auto-fixed too - not just reported:
   the floor-plan PNG draws the footing squares
 - Preliminary only - actual SBC governs from a geotechnical
   investigation; the report states this on every page
+
+## Phase 2c (shipped) - preliminary energy model (ECBC degree-day)
+
+Every alternative now gets an **annual energy estimate** so designs can be
+compared on running cost, not just capex:
+
+- **Degree-day method** (`modules/energy_model.py`, engine
+  `preliminary-degree-day-v1`): envelope `UA × CDD24/HDD16` + glazing
+  solar gain (`SHGC × annual irradiance`) + ECBC-style lighting/plug loads
+  (W/m² × operating hours by building type), cooling at EER 3.4 and
+  heating at COP 2.8, HVAC fans/pumps as 12% of cooling
+- **Data-driven** - all inputs live in `data/codes.json` → `energy`:
+  envelope U-values, per-type loads (10 building types), tariff
+  (₹/kWh, residential discount), and `[design DB, CDD24, HDD16]`
+  climate normals for **all 37 cities** (+ safe default for unknown cities)
+- **Reported**: EUI (kWh/m²·yr), annual kWh, annual ₹ cost, and a
+  5-way breakdown in `summary.json`, the **PDF report** (comparison
+  column + per-design energy block + codes table row) and the
+  **Streamlit UI** comparison table
+- Honest scope: screening-level comparison only - excludes DHW, lifts and
+  specialty equipment; **not** an hourly simulation. `find_energyplus()`
+  detects an installed EnergyPlus binary for a future engine swap-in
+  (never installed silently; returns `None` here - binary not present)
+- `tests/test_energy_model.py` (10 tests): independent hand oracle,
+  climate defaulting, breakdown sums, EUI bands per building type,
+  detection paths, pipeline + generator wiring
 
 ## Phase 3A (shipped) - genetic grid search + ML surrogate
 
@@ -182,10 +209,12 @@ The PDF report repeats this honestly.
 
 ## Roadmap
 
-- **Phase 2 + 2b (shipped: FEA, foundations, load combinations)** -
+- **Phase 2 + 2b + 2c (shipped: FEA, foundations, energy model)** -
   OpenSeesPy FEA cross-check in the optimiser ✅; spread-footing sizing
   with shear/punching/bearing checks ✅; explicit LC1-LC3 combinations in
-  hand + FEA ✅; still planned: EnergyPlus energy model
+  hand + FEA ✅; preliminary ECBC degree-day energy model (EUI, annual
+  kWh/cost) ✅ - still planned: certified EnergyPlus engine (binary
+  install required)
 - **Phase 3A (shipped: genetic grid search + ML surrogate)** -
   genome-repaired GA over bay counts/sizes feeding the re-test loop ✅;
   online ridge surrogate pre-screening candidates across runs ✅
@@ -205,6 +234,7 @@ BuildingSim/
 │   ├── design_generator.py  # 3 parametric alternatives
 │   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks + combos + footings
 │   ├── foundation.py        # Phase 2b: IS 456 spread-footing design
+│   ├── energy_model.py      # Phase 2c: ECBC degree-day energy model
 │   ├── fea.py                # Phase 2: OpenSeesPy 3D frame FEA verification
 │   ├── genetic_optimizer.py  # Phase 3A: GA over grid topology (genome repair)
 │   ├── surrogate.py          # Phase 3A: pure-Python ridge surrogate scorer
@@ -214,7 +244,7 @@ BuildingSim/
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 151 tests (incl. FEA, foundations, GA + surrogate)
+└── tests/                   # 161 tests (incl. FEA, foundations, energy, GA + surrogate)
 ```
 
 ## License

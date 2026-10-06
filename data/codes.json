@@ -171,5 +171,268 @@
     "2bhk": 850,
     "3bhk": 1200,
     "residential_default": 850
+  },
+  "energy": {
+    "_comment": "Phase-2 preliminary energy model (ECBC-aligned degree-day method) - screening-level comparison only, NOT an hourly EnergyPlus simulation. Envelope U-values ~ECBC compact; loads = ECBC-style W/m2 x operating hours; climate = [design_db_C, CDD24 degree-days, HDD16 degree-days] rounded normals.",
+    "envelope": {
+      "u_wall_wm2k": 0.8,
+      "u_roof_wm2k": 0.45,
+      "u_win_wm2k": 2.8,
+      "wwr": 0.25,
+      "shgc": 0.4,
+      "solar_kwh_m2yr": 130.0,
+      "eer": 3.4,
+      "cop_heat": 2.8,
+      "fan_frac": 0.12,
+      "internal_cool_frac": 0.65
+    },
+    "loads_by_type": {
+      "residential": {
+        "lpd_wm2": 5.0,
+        "plug_wm2": 12.0,
+        "hours": 2500
+      },
+      "office": {
+        "lpd_wm2": 8.0,
+        "plug_wm2": 15.0,
+        "hours": 3000
+      },
+      "retail": {
+        "lpd_wm2": 12.0,
+        "plug_wm2": 8.0,
+        "hours": 3600
+      },
+      "commercial": {
+        "lpd_wm2": 10.0,
+        "plug_wm2": 12.0,
+        "hours": 3400
+      },
+      "school": {
+        "lpd_wm2": 7.0,
+        "plug_wm2": 6.0,
+        "hours": 2000
+      },
+      "hospital": {
+        "lpd_wm2": 9.0,
+        "plug_wm2": 20.0,
+        "hours": 8760
+      },
+      "hotel": {
+        "lpd_wm2": 7.0,
+        "plug_wm2": 12.0,
+        "hours": 4000
+      },
+      "warehouse": {
+        "lpd_wm2": 4.0,
+        "plug_wm2": 2.0,
+        "hours": 3000
+      },
+      "industrial": {
+        "lpd_wm2": 7.0,
+        "plug_wm2": 15.0,
+        "hours": 4000
+      },
+      "parking": {
+        "lpd_wm2": 3.0,
+        "plug_wm2": 1.0,
+        "hours": 6000
+      }
+    },
+    "tariff_inr_kwh": {
+      "_default": 8.0,
+      "residential": 6.5
+    },
+    "climate_by_city": {
+      "delhi": [
+        41,
+        2800,
+        400
+      ],
+      "noida": [
+        41,
+        2800,
+        400
+      ],
+      "gurugram": [
+        41,
+        2800,
+        400
+      ],
+      "gurgaon": [
+        41,
+        2800,
+        400
+      ],
+      "mumbai": [
+        34,
+        3600,
+        0
+      ],
+      "thane": [
+        34,
+        3600,
+        0
+      ],
+      "pune": [
+        36,
+        2200,
+        150
+      ],
+      "nashik": [
+        37,
+        2500,
+        250
+      ],
+      "nagpur": [
+        42,
+        3300,
+        150
+      ],
+      "bengaluru": [
+        34,
+        1600,
+        50
+      ],
+      "bangalore": [
+        34,
+        1600,
+        50
+      ],
+      "hyderabad": [
+        40,
+        2900,
+        50
+      ],
+      "chennai": [
+        36,
+        3700,
+        0
+      ],
+      "coimbatore": [
+        35,
+        2200,
+        0
+      ],
+      "madurai": [
+        38,
+        3400,
+        0
+      ],
+      "kolkata": [
+        36,
+        3200,
+        100
+      ],
+      "ahmedabad": [
+        43,
+        3400,
+        300
+      ],
+      "surat": [
+        38,
+        3100,
+        150
+      ],
+      "vadodara": [
+        41,
+        3300,
+        250
+      ],
+      "jaipur": [
+        43,
+        3200,
+        350
+      ],
+      "lucknow": [
+        42,
+        2900,
+        400
+      ],
+      "patna": [
+        41,
+        2900,
+        400
+      ],
+      "chandigarh": [
+        40,
+        2600,
+        450
+      ],
+      "dehradun": [
+        36,
+        1900,
+        700
+      ],
+      "srinagar": [
+        33,
+        800,
+        1500
+      ],
+      "guwahati": [
+        35,
+        2500,
+        150
+      ],
+      "bhuj": [
+        42,
+        3100,
+        350
+      ],
+      "kochi": [
+        33,
+        3300,
+        0
+      ],
+      "thiruvananthapuram": [
+        33,
+        3100,
+        0
+      ],
+      "visakhapatnam": [
+        34,
+        2900,
+        0
+      ],
+      "vijayawada": [
+        39,
+        3200,
+        0
+      ],
+      "bhopal": [
+        40,
+        2800,
+        200
+      ],
+      "indore": [
+        39,
+        2600,
+        250
+      ],
+      "raipur": [
+        41,
+        3100,
+        150
+      ],
+      "varanasi": [
+        42,
+        3000,
+        400
+      ],
+      "mangaluru": [
+        33,
+        3000,
+        0
+      ],
+      "mysuru": [
+        35,
+        2000,
+        0
+      ]
+    },
+    "climate_default": [
+      38,
+      2800,
+      250
+    ]
   }
 }
