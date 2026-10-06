@@ -96,11 +96,46 @@ compared on running cost, not just capex:
   **Streamlit UI** comparison table
 - Honest scope: screening-level comparison only - excludes DHW, lifts and
   specialty equipment; **not** an hourly simulation. `find_energyplus()`
-  detects an installed EnergyPlus binary for a future engine swap-in
-  (never installed silently; returns `None` here - binary not present)
+  locates the EnergyPlus binary that the Phase-2d certified run executes
 - `tests/test_energy_model.py` (10 tests): independent hand oracle,
   climate defaulting, breakdown sums, EUI bands per building type,
   detection paths, pipeline + generator wiring
+
+## Phase 2d (shipped) - certified EnergyPlus simulation
+
+The **real hourly engine** now runs on the shortlisted design, while Phase 2c
+stays the cross-design comparison basis (identical fast method for every
+candidate):
+
+- **Engine** (`modules/energyplus_engine.py`, EnergyPlus **26.2** verified):
+  hand-built IDF → `energyplus -w city.epw -d out/` → `eplusout.sql` tabular
+  parse (AUBUPS "End Uses" → kWh / EUI / ₹, totals-row and water-row guarded)
+- **Weather**: `data/epw_map.json` maps **37 cities** → onebuilding.org TMYx
+  zips; cached once under `output/energyplus/weather/`;
+  `ENERGYPLUS_ALLOW_DOWNLOAD=0` keeps it strictly offline (cache-hit only)
+- **IDF model** (verified against the 26.2 IDD + 769 ExampleFiles): one-zone
+  ribbon-window shell, SimpleGlazing (U-factor/SHGC from the degree-day
+  assumptions), **absolute** lights/plug/people loads for the plate×floors
+  program, flat schedules at hours/8760 (load-energy parity with 2c),
+  IdealLoads 18/24 °C band reported as district heating/cooling
+- **Wiring**: `pipeline.run(..., energyplus=True/False)` (default
+  `ENERGYPLUS_ENABLED`), scope `ENERGYPLUS_SCOPE = winner | all | off`
+  (default: only the rank-1 design is simulated); summary carries a
+  top-level `energyplus` block + a per-design `energy.energyplus` dict; the
+  PDF report ("Certified simulation" block), the Streamlit compare table
+  (`EUI+ site` column) and the CLI (`ENERGY+` line) all show it;
+  `--no-energyplus` skips
+- **Fail-safe**: binary missing / EPW missing / severe errors →
+  `{"ok": False, "reason": ...}` recorded, preliminary numbers stand, the
+  run continues (`simulate()` never raises)
+- `tests/test_energyplus_engine.py` (22 tests): IDF shape + the
+  7-field SimulationControl regression, absolute-load parity, weather
+  cache/offline paths, fake-sql double-count/water regression, pipeline
+  wiring + error isolation, report rendering, and a real end-to-end Mumbai
+  run (skips itself without the local install)
+- Honest scope: single-zone screening model (no per-floor interzone surfaces,
+  no internal mass slabs, flat schedules) - certified engine, concept-stage
+  geometry. Install EnergyPlus 26.x and it runs; absent → graceful skip
 
 ## Phase 3A (shipped) - genetic grid search + ML surrogate
 
@@ -233,7 +268,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows (pip install -r requirements.txt)
 pip install -r requirements.txt
 
-# 2. CLI run
+# 2. CLI run (Phase-2d: certified EnergyPlus on the winner, if installed)
 python main.py "Design a 10-floor residential building in Mumbai with 4 units per floor, budget 10 crore, parking and green roof"
 
 # 2b. spoken brief (Phase-3C: wav/mp3/m4a -> offline STT, model downloads once)
@@ -292,8 +327,11 @@ The PDF report repeats this honestly.
   OpenSeesPy FEA cross-check in the optimiser ✅; spread-footing sizing
   with shear/punching/bearing checks ✅; explicit LC1-LC3 combinations in
   hand + FEA ✅; preliminary ECBC degree-day energy model (EUI, annual
-  kWh/cost) ✅ - still planned: certified EnergyPlus engine (binary
-  install required)
+  kWh/cost) ✅
+- **Phase 2d (shipped: certified EnergyPlus engine)** - one-zone IDF →
+  EnergyPlus 26.2 hourly run on the winner (EPW weather cache for 37
+  cities, SQLite End-Uses parse, report/UI/CLI wiring, fail-soft) ✅ -
+  the roadmap's last planned item, COMPLETE
 - **Phase 3A (shipped: genetic grid search + ML surrogate)** -
   genome-repaired GA over bay counts/sizes feeding the re-test loop ✅;
   online ridge surrogate pre-screening candidates across runs ✅
@@ -318,6 +356,7 @@ BuildingSim/
 │   ├── structural_analyzer.py  # IS 1893 / 875 / 456 checks + combos + footings
 │   ├── foundation.py        # Phase 2b: IS 456 spread-footing design
 │   ├── energy_model.py      # Phase 2c: ECBC degree-day energy model
+│   ├── energyplus_engine.py  # Phase 2d: certified EnergyPlus hourly run
 │   ├── fea.py                # Phase 2: OpenSeesPy 3D frame FEA verification
 │   ├── genetic_optimizer.py  # Phase 3A: GA over grid topology (genome repair)
 │   ├── surrogate.py          # Phase 3A: pure-Python ridge surrogate scorer
@@ -329,7 +368,7 @@ BuildingSim/
 │   ├── voice_input.py       # Phase 3C: offline STT briefs (faster-whisper)
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 193 tests (incl. FEA, foundations, energy, GA, IFC, voice)
+└── tests/                   # 215 tests (incl. FEA, foundations, energy, EnergyPlus, GA, IFC, voice)
 ```
 
 ## License

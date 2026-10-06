@@ -198,6 +198,10 @@ tab_cmp, tab_a, tab_b, tab_c, tab_opt, tab_rep = st.tabs(
 with tab_cmp:
     import pandas as pd
 
+    def _ep_eui(row):
+        ep = ((row.get("energy") or {}).get("energyplus")) or {}
+        return ep.get("eui_kwh_m2yr") if ep.get("ok") else "-"
+
     rows = [{
         "ID": r["design"]["id"],
         "Design": r["design"]["name"],
@@ -208,6 +212,7 @@ with tab_cmp:
         "Core": "yes" if r["design"]["core"] else "-",
         "Cost (₹ Cr)": round(r["cost"]["total_inr"] / 1e7, 2),
         "EUI (kWh/m²·yr)": (r.get("energy") or {}).get("eui_kwh_m2yr", "-"),
+        "EUI+ site (kWh/m²·yr)": _ep_eui(r),
         "Checks": f"{r['analysis']['passed']}/{r['analysis']['total_checks']}",
         "Max util": r["analysis"]["max_utilisation"],
         "Drift": r["analysis"]["drift"]["max_index"],

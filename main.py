@@ -53,6 +53,15 @@ def _print_summary(summary: dict) -> None:
                    f"warming up ({sur.get('samples', 0)}/"
                    f"{sur.get('min_samples', '?')} samples)")
         print(f"GA      : genetic grid search ON - surrogate {sur_txt}")
+    ep = summary.get("energyplus") or {}
+    if ep.get("enabled"):
+        for x in ep.get("runs") or []:
+            if x.get("ok"):
+                print(f"ENERGY+ : {x['id']} certified EnergyPlus - "
+                      f"site EUI {x['eui_kwh_m2yr']:.0f} kWh/m2.yr")
+            else:
+                print(f"ENERGY+ : {x['id']} skipped - "
+                      f"{x.get('reason', 'unavailable')}")
     if req.get("warnings"):
         for msg in req["warnings"][:8]:
             print(f"  ! {msg}")
@@ -103,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
                          "is deterministic)")
     ap.add_argument("--no-genetic", action="store_true",
                     help="skip Phase-3A genetic grid search")
+    ap.add_argument("--no-energyplus", action="store_true",
+                    help="skip the Phase-2d certified EnergyPlus run")
     ap.add_argument("--web", action="store_true", help="launch the Streamlit dashboard")
     ap.add_argument("--version", action="version", version=f"{cfg.APP_NAME} {cfg.VERSION}")
     args = ap.parse_args(argv)
@@ -136,9 +147,11 @@ def main(argv: list[str] | None = None) -> int:
                                make_images=not args.no_images,
                                make_ifc=not args.no_ifc,
                                seed=args.seed,
-                               # None (not False) keeps GENETIC_ENABLED env
-                               # in control unless --no-genetic was passed
-                               genetic=False if args.no_genetic else None)
+                                # None (not False) keeps GENETIC_ENABLED env
+                                # in control unless --no-genetic was passed
+                                genetic=False if args.no_genetic else None,
+                                # same pattern for ENERGYPLUS_ENABLED
+                                energyplus=False if args.no_energyplus else None)
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2

@@ -378,6 +378,32 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
                        f"CDD24 {cl['cdd24']}, HDD16 {cl['hdd16']} "
                        f"(kWh figures include HVAC fans/pumps).", size=8)
 
+        # ---- Phase-2d certified EnergyPlus run -----------------------------
+        ep = ((r.get("energy") or {}).get("energyplus")) or {}
+        if ep.get("ok"):
+            _h2(pdf, "Certified simulation (EnergyPlus "
+                     f"{str(ep.get('engine', '')).replace('energyplus-', '')})")
+            bd2 = ep.get("breakdown_kwh") or {}
+            _grid(pdf,
+                  ["EUI site (kWh/m2-yr)", "Annual (kWh)",
+                   "Energy cost (Rs/yr)", "Runtime"],
+                  [[f"{ep.get('eui_kwh_m2yr', 0):.0f}",
+                    f"{ep.get('annual_kwh', 0):,}",
+                    f"{ep.get('annual_cost_inr', 0):,}",
+                    f"{ep.get('runtime_s', 0):.1f} s"]],
+                  [40, 34, 40, 30], aligns=["C"] * 4, size=8.5)
+            w = ep.get("weather") or {}
+            _body(pdf, "End uses: " + ", ".join(
+                       f"{k} {v:,.0f} kWh" for k, v in bd2.items()) +
+                  f". Weather {w.get('city', '?')} ({w.get('source', '?')}), "
+                  f"tariff Rs {ep.get('tariff_inr_kwh', 0):g}/kWh. Site EUI "
+                  "is the EnergyPlus convention (district cooling counted as "
+                  "thermal); the preliminary figure above is electric-only, "
+                  "so the two are not directly comparable.", size=8)
+        elif ep:
+            _note(pdf, "Certified EnergyPlus run: skipped - "
+                       f"{ep.get('reason', 'unavailable')}", kind="warn")
+
         # ---- Phase-2 OpenSees FEA verification ---------------------------
         fea_r = a.get("fea") or {}
         if fea_r.get("ok"):
@@ -567,9 +593,12 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
           ],
           [42, 55, 78], aligns=["L", "L", "L"], size=8.5)
     _note(pdf, "These are heuristic potentials, not certified LEED/GRIHA points. "
-               "A preliminary annual energy estimate (degree-day model) is in "
-               "sections 2 and 3; formal certification needs an hourly "
-               "simulation engine such as EnergyPlus.", kind="warn")
+               "Annual energy is reported two ways: a preliminary degree-day "
+               "estimate (sections 2 and 3 - identical method for all designs, "
+               "so it is the comparison basis) and a certified EnergyPlus "
+               "hourly simulation on in-scope designs (default: the winner, "
+               "section 3) whenever the EnergyPlus binary is available.",
+          kind="warn")
 
     # ---------------- 6. codes ----------------
     _h1(pdf, "6. Codes, methods and honesty note")
@@ -584,11 +613,12 @@ def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:
             ["IS 456:2000", "RC member sizing (limit-state approximations: "
                             "0.136 fck bd2 moment capacity, column capacity "
                             "0.4fck Ag + 0.67fy Asc, L/d serviceability)"],
-            ["Energy (preliminary)", "ECBC-aligned degree-day model: envelope "
-                                     "UA x CDD24/HDD16 + solar + lighting/plug "
-                                     "loads, EER 3.4 cooling / COP 2.8 heating "
-                                     "- comparison only, not a certified "
-                                     "energy model"],
+            ["Energy (preliminary + certified)",
+             "ECBC-aligned degree-day model for cross-design comparison "
+             "(comparison only, not a certified model); certified "
+             "EnergyPlus 26.x hourly run - explicit RunPeriod, IdealLoads "
+             "zone HVAC, EPW weather, SQLite tabular output - on in-scope "
+             "designs (default: winner)"],
             ["Simplified methods", "Triangular seismic distribution, portal-frame "
                                    "drift, effective-width column stiffness - "
                                    "documented simplifications for concept stage"]],

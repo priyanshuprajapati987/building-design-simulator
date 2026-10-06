@@ -13,3 +13,10 @@ if str(ROOT) not in sys.path:
 # pipeline.run (tall buildings: +145s per heavy test). The search itself is
 # covered explicitly by tests/test_genetic.py (genetic=True / evolve()).
 os.environ["GENETIC_ENABLED"] = "0"
+
+# Hermetic suite: same idea for the Phase-2d certified EnergyPlus run - a
+# default-ON engine would add an EnergyPlus invocation (+~1.5s, plus binary
+# discovery) to every pipeline.run in the suite. The engine is covered
+# explicitly by tests/test_energyplus_engine.py (energyplus=True and the
+# direct simulate() end-to-end).
+os.environ["ENERGYPLUS_ENABLED"] = "0"

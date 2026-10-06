@@ -39,6 +39,7 @@ def find_energyplus(explicit_dir: str = "") -> str | None:
     env = os.environ.get("ENERGYPLUS_DIR", "").strip()
     if env:
         candidates.append(Path(env))
+    candidates.append(cfg.ROOT / ".energyplus")      # repo-local install (Phase-2d)
     with contextlib.suppress(OSError):
         for base in (r"C:\Program Files", r"C:\Program Files (x86)",
                      "/usr/local", "/usr"):

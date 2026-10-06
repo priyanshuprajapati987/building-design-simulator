@@ -13,6 +13,7 @@ from . import (
     cost_estimator,
     design_generator,
     energy_model,
+    energyplus_engine,
     genetic_optimizer,
     ifc_export,
     input_handler,
@@ -89,13 +90,17 @@ def run(text: str | None = None,
         make_images: bool = True,
         make_ifc: bool = True,
         seed: int | None = None,
-        genetic: bool | None = None) -> dict[str, Any]:
+        genetic: bool | None = None,
+        energyplus: bool | None = None) -> dict[str, Any]:
     """Run the full pipeline. Returns the summary dict (also saved as JSON).
 
     ``make_ifc`` (Phase-3B) writes one IFC4 model per design under
     ``out/ifc/``; ``genetic`` overrides the GENETIC_ENABLED config flag
-    (Phase-3A grid search); None = follow config."""
+    (Phase-3A grid search); ``energyplus`` overrides ENERGYPLUS_ENABLED
+    (Phase-2d certified hourly run on in-scope designs, default the winner);
+    None = follow config."""
     do_ga = cfg.GENETIC_ENABLED if genetic is None else bool(genetic)
+    do_ep = cfg.ENERGYPLUS_ENABLED if energyplus is None else bool(energyplus)
     req: Requirements = input_handler.load(text, data)
     requirement_analyzer.analyze(req)
 
@@ -173,6 +178,27 @@ def run(text: str | None = None,
         out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    # ---- certified EnergyPlus run (Phase-2d) -------------------------------
+    # in-scope designs only (config ENERGYPLUS_SCOPE, default: winner).
+    # simulate() never raises; a miss keeps the preliminary degree-day
+    # numbers as the energy result and records the reason instead.
+    ep_runs: list[dict[str, Any]] = []
+    if do_ep:
+        for r in results:
+            if not energyplus_engine.in_scope(r["rank"]):
+                continue
+            try:
+                ep = energyplus_engine.simulate(
+                    req, r["design"], r["energy"],
+                    out / "energyplus" / r["design"].id)
+            except Exception as exc:            # engine must never kill a run
+                ep = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+            r["energy"]["energyplus"] = ep       # serialised with r["energy"]
+            ep_runs.append({"id": r["design"].id,
+                            "ok": bool(ep.get("ok")),
+                            "eui_kwh_m2yr": ep.get("eui_kwh_m2yr"),
+                            "reason": ep.get("reason")})
+
     # ---- images ------------------------------------------------------------
     images: dict[str, Any] = {}
     if make_images:
@@ -220,6 +246,11 @@ def run(text: str | None = None,
             "designs_searched": len(results),
             "surrogate": surrogate.stats(),
         } if do_ga else {"enabled": False}),
+        "energyplus": ({
+            "enabled": True,
+            "scope": cfg.ENERGYPLUS_SCOPE,
+            "runs": ep_runs,
+        } if do_ep else {"enabled": False}),
         "winner": {"id": results[0]["design"].id,
                    "name": results[0]["design"].name,
                    "score": results[0]["score"]},

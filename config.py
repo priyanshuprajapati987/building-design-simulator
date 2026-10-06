@@ -34,6 +34,24 @@ _MODEL_DIR_OVERRIDE = os.environ.get("VOICE_MODEL_DIR", "").strip()
 VOICE_MODEL_DIR = (Path(_MODEL_DIR_OVERRIDE) if _MODEL_DIR_OVERRIDE
                    else OUTPUT_DIR / "voice")
 
+# Phase-2d certified EnergyPlus simulation (set ENERGYPLUS_ENABLED=0 to skip;
+# ENERGYPLUS_SCOPE = winner | all | off; ENERGYPLUS_ALLOW_DOWNLOAD=0 keeps
+# weather strictly offline - city EPW must already be cached)
+ENERGYPLUS_ENABLED = os.environ.get("ENERGYPLUS_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off")
+ENERGYPLUS_SCOPE = (os.environ.get("ENERGYPLUS_SCOPE", "winner").strip().lower()
+                    or "winner")
+ENERGYPLUS_ALLOW_DOWNLOAD = os.environ.get(
+    "ENERGYPLUS_ALLOW_DOWNLOAD", "1").strip().lower() not in ("0", "false", "no", "off")
+try:
+    ENERGYPLUS_TIMEOUT = max(30, int(os.environ.get("ENERGYPLUS_TIMEOUT", "600")))
+except ValueError:
+    ENERGYPLUS_TIMEOUT = 600
+# local per-city weather cache (one .epw per city key, downloaded once)
+ENERGYPLUS_WEATHER_DIR = OUTPUT_DIR / "energyplus" / "weather"
+# city -> onebuilding.org TMYx zip map (see tools/epw_harvester notes)
+EPW_MAP_FILE = DATA_DIR / "epw_map.json"
+
 APP_NAME = "Building Design Simulator"
 VERSION = "0.1.0"
 DISCLAIMER = (
