@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import config as cfg
-from modules import pipeline
+from modules import pipeline, voice_input
 
 
 def _print_summary(summary: dict) -> None:
@@ -93,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-images", action="store_true", help="skip charts/drawings")
     ap.add_argument("--no-ifc", action="store_true",
                     help="skip IFC4 model export (Phase-3B)")
+    ap.add_argument("--voice-file", metavar="AUDIO",
+                    help="transcribe a spoken brief from wav/mp3/m4a "
+                         "instead of typed text (Phase-3C; needs "
+                         "faster-whisper)")
     ap.add_argument("--json", action="store_true", help="print full summary as JSON")
     ap.add_argument("--seed", type=int, default=None,
                     help="seed for the genetic search (generation itself "
@@ -114,6 +118,14 @@ def main(argv: list[str] | None = None) -> int:
     data = None
     if args.dict_file:
         data = json.loads(Path(args.dict_file).read_text(encoding="utf-8"))
+    if args.voice_file and not text and not data:
+        try:
+            text = voice_input.transcribe(args.voice_file)
+        except voice_input.VoiceInputError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(f"Voice    : transcribed {args.voice_file}")
+        print(f"Transcript: {text}")
     if not text and not data:
         text = _interactive()
 

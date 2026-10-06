@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 import config as cfg
-from modules import pipeline
+from modules import pipeline, voice_input
 
 st.set_page_config(page_title=cfg.APP_NAME, page_icon="🏢", layout="wide")
 
@@ -38,9 +38,33 @@ with st.sidebar:
     st.title("🏢 " + cfg.APP_NAME)
     st.caption(f"v{cfg.VERSION} - preliminary code-based comparison")
 
+    if cfg.VOICE_ENABLED and voice_input.available():
+        st.subheader("Voice brief (Phase-3C)")
+        clip = st.audio_input("Record your brief, then add it to the text",
+                              key="mic_clip")
+        if clip is not None and st.button("Add clip to brief",
+                                          key="mic_go"):
+            raw = clip.getvalue()
+            if st.session_state.get("_mic_done") == raw:
+                st.caption("This clip was already added to the brief")
+            else:
+                try:
+                    spoken = voice_input.transcribe(raw)
+                except voice_input.VoiceInputError as exc:
+                    st.error(str(exc))
+                else:
+                    current = st.session_state.get("brief_input") or ""
+                    st.session_state["brief_input"] = (
+                        f"{current} {spoken}".strip())
+                    st.session_state["_mic_done"] = raw
+                    st.caption(f"Added to brief: {spoken}")
+    elif cfg.VOICE_ENABLED:
+        st.caption("Voice input: pip install faster-whisper to enable")
+
     brief = st.text_area(
         "Design brief (text / voice transcript)",
         height=130,
+        key="brief_input",
         placeholder="e.g. Design a 10-floor residential building in Mumbai "
                     "with 4 units per floor, budget 10 crore, parking and "
                     "green roof")

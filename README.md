@@ -15,7 +15,7 @@
 
 | Step | What happens |
 |------|--------------|
-| 1. Input | Free text / voice transcript / structured JSON / sidebar form |
+| 1. Input | Free text / spoken brief (mic in the dashboard, `--voice-file` on the CLI) / structured JSON / sidebar form |
 | 2. Requirements | City → seismic zone (IS 1893), wind speed + terrain (IS 875), defaults, sanity warnings |
 | 3. Generate | **3 parametric alternatives**: A Compact RC Frame, B Core Shear-Wall Dual, C Open-Plan Ductile Frame |
 | 4. Code checks | Seismic (equivalent static), wind, columns/beams/slab capacity + drift + overturning (IS 1893 / IS 875 / IS 456) |
@@ -192,6 +192,39 @@ Every run also writes one **IFC4** model per design under `out/ifc/`
   minimal-input edge case, IfcOpenShell validate + express rules, and
   pipeline on/off wiring
 
+## Phase 3C (shipped) - voice input (offline speech-to-text)
+
+Speak the brief instead of typing it - fully offline, no cloud STT:
+
+- **Dashboard**: the sidebar gains a *Voice brief* mic widget
+  (`st.audio_input`) - record, press **Add clip to brief**, and the
+  transcript is appended to the design-brief text box (typed text is
+  preserved); every engine failure surfaces as a readable error and the
+  run is never blocked
+- **CLI**: `--voice-file brief.wav` transcribes wav/mp3/m4a and uses it
+  as the brief (typed text still wins when both are given)
+- **Engine**: faster-whisper (CTranslate2, CPU int8, no torch) - in
+  `requirements.txt`, model downloaded once into `output/voice/`
+  (gitignored; copy the files there by hand for offline machines).
+  Optional like FEA: `VOICE_ENABLED=0` or a missing install keeps the
+  text path working
+- **Config**: `VOICE_MODEL` (default `base.en`), `VOICE_LANGUAGE` (empty
+  = auto-detect), `VOICE_MODEL_DIR`
+- **Single front door**: transcripts feed `input_handler.parse_text()`
+  like any typed brief - voice never bypasses requirement parsing, and
+  the requirements block shows exactly what was heard
+- Honest limits: short briefs only (not dictation); quality drops on
+  noisy audio or heavy code-switching; the model needs one online run
+  (or a manual copy) before fully offline use
+- Verified end-to-end with a Windows-SAPI synthesised spoken brief:
+  transcribed to *"...five-floor office building in Mumbai with a budget
+  of 10 crore, parking, and a green roof"* and parsed to office / Mumbai
+  / 5 floors / budget 10 Cr / `[green_roof, parking]`
+- `tests/test_voice_input.py` (17 tests): availability + engine-missing
+  paths, disabled/empty/missing-file/decode/no-speech errors, byte-clip
+  and path happy paths, transcript -> parser integration, model cache +
+  int8 CPU config, and CLI wiring (runs, error exit, typed-text priority)
+
 ## Quickstart
 
 ```bash
@@ -202,6 +235,9 @@ pip install -r requirements.txt
 
 # 2. CLI run
 python main.py "Design a 10-floor residential building in Mumbai with 4 units per floor, budget 10 crore, parking and green roof"
+
+# 2b. spoken brief (Phase-3C: wav/mp3/m4a -> offline STT, model downloads once)
+python main.py --voice-file brief.wav
 
 # 3. or structured input
 python main.py --dict inputs.json --no-pdf
@@ -263,7 +299,9 @@ The PDF report repeats this honestly.
   online ridge surrogate pre-screening candidates across runs ✅
 - **Phase 3B (shipped: IFC4 export)** - hand-rolled STEP writer emitting
   the spatial tree, analysed geometry and `Pset_BuildingSim` per design ✅
-- **Phase 3 (planned)** - voice input
+- **Phase 3C (shipped: voice input)** - offline faster-whisper STT (mic
+  clip in the dashboard, `--voice-file` on the CLI) feeding the same text
+  parser ✅ - Phase 3 fully shipped (3A search, 3B IFC, 3C voice)
 
 ## Project structure
 
@@ -288,9 +326,10 @@ BuildingSim/
 │   ├── visualization.py     # matplotlib 2D/charts + plotly 3D
 │   ├── report_generator.py  # fpdf2 PDF
 │   ├── ifc_export.py        # Phase 3B: hand-rolled IFC4 STEP writer (zero deps)
+│   ├── voice_input.py       # Phase 3C: offline STT briefs (faster-whisper)
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 176 tests (incl. FEA, foundations, energy, GA, IFC)
+└── tests/                   # 193 tests (incl. FEA, foundations, energy, GA, IFC, voice)
 ```
 
 ## License

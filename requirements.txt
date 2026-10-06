@@ -8,3 +8,8 @@ pytest>=8.0
 # 3.8.x requires Python 3.12 (both break on our 3.11 venv). The app degrades
 # gracefully to hand-method checks when this is missing (FEA_ENABLED=0 too).
 openseespy==3.7.0.1
+
+# Phase-3C voice input - offline STT for spoken briefs (optional: text path
+# works without it; VOICE_ENABLED=0 disables; model weights download once
+# to output/voice on first use)
+faster-whisper>=1.0

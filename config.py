@@ -20,6 +20,20 @@ DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 CODES_FILE = DATA_DIR / "codes.json"
 
+# Phase-3C voice input - offline STT via faster-whisper (set VOICE_ENABLED=0
+# to skip; text path works without the optional engine installed)
+VOICE_ENABLED = os.environ.get("VOICE_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off")
+# whisper model size (tiny.en is fastest, base.en the default trade-off)
+VOICE_MODEL = os.environ.get("VOICE_MODEL", "base.en").strip() or "base.en"
+# empty = auto-detect spoken language (transcripts still parse as English)
+VOICE_LANGUAGE = os.environ.get("VOICE_LANGUAGE", "").strip() or None
+_MODEL_DIR_OVERRIDE = os.environ.get("VOICE_MODEL_DIR", "").strip()
+# weights download once here (gitignored under output/ - copy them in by
+# hand for fully offline machines)
+VOICE_MODEL_DIR = (Path(_MODEL_DIR_OVERRIDE) if _MODEL_DIR_OVERRIDE
+                   else OUTPUT_DIR / "voice")
+
 APP_NAME = "Building Design Simulator"
 VERSION = "0.1.0"
 DISCLAIMER = (
