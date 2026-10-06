@@ -1,5 +1,8 @@
 # Building Design Simulator
 
+**Status: v0.1.0 SHIPPED (October 2026)** — all 8 roadmap phases complete
+(1, 2, 2b, 2c, 2d, 3A, 3B, 3C), 215 tests passing, zero known TODOs.
+
 **AI + parametric preliminary building design** — give it a plain-English brief
 (or a form), get **3 structural design alternatives**, **IS-code checks**,
 **auto-optimisation**, **city-wise cost estimates**, **2D drawings + interactive
