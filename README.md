@@ -249,4 +249,23 @@ BuildingSim/
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+**MIT** - see [LICENSE](LICENSE) (© 2026 Priyanshu Prajapati). Use, modify,
+redistribute and even sell freely, as long as the copyright notice stays
+with the code.
+
+### Dependency licenses (verified from installed packages)
+
+| Package | License | Note |
+|---|---|---|
+| streamlit | Apache-2.0 | permissive, no strings |
+| plotly | MIT | permissive |
+| matplotlib | PSF | permissive |
+| numpy | BSD-3-Clause | permissive |
+| pytest | MIT | permissive (dev only) |
+| **fpdf2** | **LGPL-3.0** | PDF generation: unmodified use is fine; if you distribute the app, ship its license text; if you modify fpdf2 itself, publish that modified source |
+| **openseespy** | **custom (UC Berkeley / Oregon State)** | free for research, education and internal use - **commercial redistribution** (a paid app or cloud service that `import openseespy`) requires a commercial license from Dr. Minjie Zhu (zhum@oregonstate.edu) |
+
+**Practical note:** the MIT license covers *this* repository's code. The two
+bolded dependencies are the only ones with obligations beyond attribution -
+watch them only when you ship a paid/commercial product (internal,
+research or educational use is fine as-is).
