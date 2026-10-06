@@ -135,7 +135,13 @@ def test_verify_sane_bounds(small):
     # raw (pre-optimisation) sanity: non-negative + these bounds catch the
     # historic per-span load bug that inflated moments ~nx^2 (col inter ~10+)
     assert 0.0 <= res["drift_max_index"] <= 0.004
-    assert 0.0 <= res["beam_max_util"] <= 2.0
+    assert 0.0 <= res["beam_max_util"] <= 6.0
+    # honesty anchor: corrected end forces (eleForce - f_eq) must track the
+    # hand span formula - pre-fix K*u alone under-reported raw beams ~6x
+    hand_beam = next((c["value"] for c in analysis["checks"]
+                      if "Beam moment" in c["name"]), None)
+    if hand_beam:
+        assert res["beam_max_util"] == pytest.approx(hand_beam, rel=0.5)
     assert res["column_max_interaction"] >= 0.0
     assert res["base_shear_applied_kN"] > 0
 

@@ -40,6 +40,27 @@ def city_info(city: str) -> dict | None:
     return get_codes()["cities"].get(city.strip().lower())
 
 
+# parser .title() spellings that differ from the rate-table keys
+_RATE_ALIASES = {"bangalore": "bengaluru", "gurgaon": "gurugram",
+                 "bombay": "mumbai", "calcutta": "kolkata",
+                 "madras": "chennai"}
+
+
+@lru_cache(maxsize=1)
+def _rates_lower() -> dict[str, float]:
+    out: dict[str, float] = {}
+    for k, v in get_codes()["cost_inr_per_sqft"].items():
+        try:
+            out[k.lower()] = float(v)
+        except (TypeError, ValueError):
+            continue        # explanatory comment entries, not city rates
+    return out
+
+
 def city_rate_inr_sqft(city: str) -> float:
-    rates = get_codes()["cost_inr_per_sqft"]
-    return float(rates.get(city.strip().title(), rates["default"]))
+    """Rate lookup, case-insensitive with known aliases (req.city is
+    title-cased by the parser, so raw .title() lookup missed aliases like
+    "Bangalore" vs the table's "Bengaluru" and fell back to default)."""
+    rates = _rates_lower()
+    key = city.strip().lower()
+    return float(rates.get(_RATE_ALIASES.get(key, key), rates["default"]))

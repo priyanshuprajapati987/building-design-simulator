@@ -245,6 +245,12 @@ def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
     def wid(i: int, iz: int) -> int:
         return wall0 + i + 4 * iz
 
+    # per-element work-equivalent nodal load vectors of the gravity pattern
+    # (filled by apply_case, consumed by forces): true member end force =
+    # eleForce - f_eq (K*u omits the distributed-load fixed-end actions).
+    bx_eq: dict[int, list[float]] = {}
+    bx_tag: dict[tuple[int, int, int], int] = {}
+
     share: list[float] = []
     for iy in range(ny + 1):
         for ix in range(nx + 1):
@@ -261,6 +267,8 @@ def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
     def build():
         """Fresh wiped model; returns (col_reg, bx_reg, by_reg, wall_reg)."""
         ops.wipe()
+        bx_eq.clear()
+        bx_tag.clear()
         ops.model("basic", "-ndm", 3, "-ndf", 6)
         ops.constraints("Transformation")     # required by equalDOF
         for iz in range(nz + 1):
@@ -319,12 +327,13 @@ def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
                         col_reg.append((tag, iz - 1))
             for iy in range(ny + 1):
                 for ix in range(nx):
-                    tag = _E_BX + el
-                    el += 1
-                    ops.element("elasticBeamColumn", tag,
-                                nid(ix, iy, iz), nid(ix + 1, iy, iz),
-                                beam_a, E, Gmod, beam_j, beam_iy, beam_iz, 1)
-                    bx_reg.append((tag, iz))
+                        tag = _E_BX + el
+                        el += 1
+                        ops.element("elasticBeamColumn", tag,
+                                    nid(ix, iy, iz), nid(ix + 1, iy, iz),
+                                    beam_a, E, Gmod, beam_j, beam_iy, beam_iz, 1)
+                        bx_reg.append((tag, iz))
+                        bx_tag[(ix, iy, iz)] = tag
             for iy in range(ny):
                 for ix in range(nx + 1):
                     tag = _E_BY + el
@@ -390,6 +399,9 @@ def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
                     for ix in range(nx):
                         ops.load(nid(ix, iy, iz), 0, 0, -v, 0, m, 0)
                         ops.load(nid(ix + 1, iy, iz), 0, 0, -v, 0, -m, 0)
+                        bx_eq[bx_tag[(ix, iy, iz)]] = [
+                            0.0, 0.0, -v, 0.0, m, 0.0,
+                            0.0, 0.0, -v, 0.0, -m, 0.0]
         else:
             for iz in range(1, nz + 1):
                 w = per_floor[iz - 1]
@@ -407,6 +419,11 @@ def _run(d, analysis, gravity, dead, live, f_lateral, col_sections,
         for tag, _iz in reg:
             f = ops.eleForce(tag)
             if f:
+                eq = bx_eq.get(tag)
+                if eq:
+                    # K*u alone misses the distributed slab load's fixed-end
+                    # actions; true section force = eleForce - f_eq
+                    f = [a - b for a, b in zip(f, eq)]
                 out[tag] = f
         return out
 

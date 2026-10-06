@@ -214,7 +214,7 @@ BuildingSim/
 │   ├── report_generator.py  # fpdf2 PDF
 │   └── pipeline.py          # end-to-end orchestration
 ├── ui/web_app.py            # Streamlit dashboard
-└── tests/                   # 144 tests (incl. FEA, foundations, GA + surrogate)
+└── tests/                   # 151 tests (incl. FEA, foundations, GA + surrogate)
 ```
 
 ## License

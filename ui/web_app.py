@@ -49,7 +49,7 @@ with st.sidebar:
     c1, c2 = st.columns(2)
     building_type = c1.selectbox("Building type", _TYPES, index=0)
     city = c2.selectbox("City", _city_options(),
-                        index=_city_options().index("Mumbai"))
+                        index=_city_options().index("Delhi"))
     floors = st.number_input("Floors", 1, 60, 5, step=1)
     units = st.number_input("Units / floor (0 = n/a)", 0, 40, 0)
     budget = st.number_input("Budget (crore, 0 = n/a)", 0.0, 5000.0, 0.0, step=0.5)
@@ -74,8 +74,21 @@ with st.sidebar:
 
 
 def _form_data() -> dict:
-    data: dict = {"building_type": building_type, "city": city,
-                  "floors": int(floors), "soil_type": soil}
+    """Only fields the user actually changed are sent - an untouched widget
+    must NOT clobber what the brief said (the dict used to win over parse_text
+    for building_type/city/floors/soil, so "10 storey office in Pune" came back
+    as a 5-floor residential Mumbai building). Widget defaults mirror the
+    Requirements defaults so an untouched form = pure-brief (or pure-default)
+    run. ``special`` unions with the brief's (see input_handler.load)."""
+    data: dict = {}
+    if building_type != "residential":          # Requirements default
+        data["building_type"] = building_type
+    if city != "Delhi":                         # Requirements default
+        data["city"] = city
+    if int(floors) != 5:                        # Requirements default
+        data["floors"] = int(floors)
+    if soil != "II":                            # Requirements default
+        data["soil_type"] = soil
     if units:
         data["units_per_floor"] = int(units)
     if budget:
@@ -84,8 +97,6 @@ def _form_data() -> dict:
         data["seismic_zone"] = zone
     if specials:
         data["special"] = specials
-    if brief.strip():
-        data["raw_text"] = brief.strip()
     return data
 
 
@@ -322,6 +333,8 @@ with tab_rep:
                            data=pdf_path.read_bytes(),
                            file_name="building_design_report.pdf",
                            mime="application/pdf", width="stretch")
+    elif summary.get("pdf_error"):
+        d1.error(f"PDF failed: {summary['pdf_error']}")
     else:
         d1.info("PDF not generated (see run settings)")
     d2.download_button("⬇  summary.json",

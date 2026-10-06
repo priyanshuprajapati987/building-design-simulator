@@ -165,3 +165,59 @@ def test_specials_deduped_and_sorted():
 def test_importance_hint_school():
     req = requirement_analyzer.analyze(input_handler.load(text="school building"))
     assert any("importance factor" in w for w in req.warnings)
+
+
+# ---------------------------------------------------------------------------
+# regressions (round-2 bug hunt)
+# ---------------------------------------------------------------------------
+
+def test_storey_word_keeps_residential_type():
+    # keyword boundaries: "storey" must not trip building-type keywords
+    out = input_handler.parse_text("10 storey residential building in Delhi")
+    assert out["building_type"] == "residential"
+    assert out["floors"] == 10
+
+
+def test_hyphenated_storey_apartment():
+    out = input_handler.parse_text("12-storey apartment in Bengaluru")
+    assert out["building_type"] == "residential"
+    assert out["floors"] == 12
+
+
+def test_storage_keyword_still_detects_warehouse():
+    # boundary fix must not lose whole-word keywords
+    out = input_handler.parse_text("workshop and storage godown")
+    assert out["building_type"] == "warehouse"
+
+
+def test_comma_numbers_budget_and_land():
+    out = input_handler.parse_text(
+        "2000 sqft plot, budget Rs 2,50,00,000 for a shop")
+    assert out["budget_crores"] == pytest.approx(2.5)
+    assert out["land_area_sqft"] == pytest.approx(2000)
+    assert out["building_type"] == "retail"
+
+
+def test_specials_union_text_and_dict():
+    # dict special used to REPLACE the brief's; now they union
+    req = input_handler.load(
+        "10 storey residential building with parking in Pune",
+        {"special": ["solar_panels"]})
+    assert req.special == ["parking", "solar_panels"]
+
+
+def test_vb_out_of_range_falls_back_with_warning():
+    req = requirement_analyzer.analyze(Requirements(raw_text="", vb=999))
+    assert 30.0 <= req.vb <= 60.0
+    assert any("outside the IS 875 range" in w for w in req.warnings)
+
+
+def test_vb_zero_falls_back():
+    req = requirement_analyzer.analyze(Requirements(raw_text="", vb=0))
+    assert 30.0 <= req.vb <= 60.0
+
+
+def test_vb_in_range_kept_without_warning():
+    req = requirement_analyzer.analyze(Requirements(raw_text="", vb=47))
+    assert req.vb == 47
+    assert not any("outside the IS 875 range" in w for w in req.warnings)

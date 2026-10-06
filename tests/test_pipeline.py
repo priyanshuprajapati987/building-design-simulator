@@ -52,18 +52,34 @@ def test_cost_estimate_shape_and_budget():
         c["total_inr"], rel=0.01)
 
 
-def test_optimization_retests_after_fix():
+def test_optimization_retests_after_fix(monkeypatch):
+    """After applying a fix the engine must RE-run the analysis - a stale
+    pre-fix result must never be returned (injected failure on call #1 forces
+    a real fix through optimize(); call #2 proves the re-test)."""
     req = requirement_analyzer.analyze(
         input_handler.load(text="25 floor office in Delhi"))
     d = design_generator.generate(req)[0]
+    calls = {"n": 0}
+    drift = {"max_index": 0.001, "limit": 0.004}
+    fail = {"passed": 0, "total_checks": 10, "max_utilisation": 1.4,
+            "drift": drift,
+            "checks": [{"name": "Beam moment capacity (max utilisation)",
+                        "value": 1.4, "unit": "-", "limit": "<= 1.00",
+                        "passed": False}]}
+    ok = {"passed": 10, "total_checks": 10, "max_utilisation": 0.8,
+          "drift": drift, "checks": []}
+
+    def fake_refresh(_d, _req):
+        calls["n"] += 1
+        return dict(fail) if calls["n"] == 1 else dict(ok)
+
+    monkeypatch.setattr(optimization_engine, "_refresh", fake_refresh)
     best, analysis, fixes = optimization_engine.optimize(d, req)
     assert best is not d                     # always a re-tested copy
-    # whatever happened, the returned analysis must be consistent
+    assert calls["n"] >= 2, "optimizer must re-test after the fix"
+    assert fixes, "the injected failing beam must produce at least one fix"
+    assert all("iteration" in f and "action" in f for f in fixes)
     assert analysis["passed"] <= analysis["total_checks"]
-    assert isinstance(fixes, list)
-    if fixes:
-        assert any("iter" in str(f["iteration"]) or f["iteration"] == "-"
-                   for f in fixes)
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +96,7 @@ def summary(tmp_path_factory):
 def test_three_results_ranked(summary):
     assert len(summary["results"]) == 3
     ranks = [r["rank"] for r in summary["results"]]
-    assert sorted(ranks) == [1, 2, 3]
+    assert ranks == [1, 2, 3], "list order must match rank order (results are sorted before ranks are assigned)"
     assert summary["results"][0]["rank"] == 1
     assert summary["winner"]["id"] == summary["results"][0]["design"]["id"]
 

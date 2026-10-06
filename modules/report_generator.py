@@ -19,6 +19,26 @@ INK = (15, 23, 42)
 MUTED = (100, 116, 139)
 ACCENT = (37, 99, 235)
 
+# fpdf2 core fonts (helvetica) are latin-1 only: a single '₹' (or any other
+# non-latin-1 rune) in the raw brief / a warning raised FPDFUnicodeEncodingException
+# and the whole PDF build died (summary["pdf_error"]).
+_LATIN_MAP = str.maketrans({
+    "₹": "Rs.",
+    "\u2013": "-", "\u2014": "-", "\u2212": "-",
+    "\u2026": "...",
+    "\u2018": "'", "\u2019": "'", "\u201a": "'",
+    "\u201c": '"', "\u201d": '"',
+    "\u00b0": " deg", "\u00d7": "x",
+    "\u2264": "<=", "\u2265": ">=", "\u2192": "->",
+    "\u00b7": "-", "\u2022": "-", "\u00a0": " ",
+})
+
+
+def _lat(text) -> str:
+    """Any text -> latin-1-safe (unmapped runes become '?')."""
+    s = str(text).translate(_LATIN_MAP)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
 
 class ReportPDF(FPDF):
     def header(self):
@@ -49,7 +69,7 @@ def _h1(pdf, text):
     pdf.set_font("helvetica", "B", 14)
     pdf.set_text_color(*ACCENT)
     pdf.ln(3)
-    pdf.multi_cell(0, 8, text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, 8, _lat(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_draw_color(*ACCENT)
     pdf.set_line_width(0.5)
     pdf.line(pdf.l_margin, pdf.get_y() + 0.5, pdf.w - pdf.r_margin, pdf.get_y() + 0.5)
@@ -62,7 +82,7 @@ def _h2(pdf, text):
     pdf.set_font("helvetica", "B", 11)
     pdf.set_text_color(*INK)
     pdf.ln(2)
-    pdf.multi_cell(0, 6, text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, 6, _lat(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(1)
     pdf.set_text_color(0, 0, 0)
 
@@ -70,7 +90,7 @@ def _h2(pdf, text):
 def _body(pdf, text, size=9.5):
     pdf.set_font("helvetica", "", size)
     pdf.set_text_color(30, 30, 30)
-    pdf.multi_cell(0, 5, str(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, 5, _lat(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_text_color(0, 0, 0)
 
 
@@ -81,9 +101,9 @@ def _kv_table(pdf, rows, w1=70):
         if pdf.get_y() > pdf.h - 30:
             pdf.add_page()
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(w1, 5.6, str(k), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(w1, 5.6, _lat(k), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
         pdf.set_font("helvetica", "", 9)
-        pdf.cell(usable - w1, 5.6, str(v), border=1,
+        pdf.cell(usable - w1, 5.6, _lat(v), border=1,
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
 
@@ -96,7 +116,7 @@ def _grid(pdf, headers, rows, widths, aligns=None, size=8.5, colors=None):
     pdf.set_fill_color(238, 242, 247)
     pdf.set_font("helvetica", "B", size)
     for h, w, a in zip(headers, widths, aligns):
-        pdf.cell(w, 6, str(h), border=1, align=a, fill=True,
+        pdf.cell(w, 6, _lat(h), border=1, align=a, fill=True,
                  new_x=XPos.RIGHT, new_y=YPos.TOP)
     pdf.ln(6)
 
@@ -107,14 +127,14 @@ def _grid(pdf, headers, rows, widths, aligns=None, size=8.5, colors=None):
             pdf.set_fill_color(238, 242, 247)
             pdf.set_font("helvetica", "B", size)
             for h, w, a in zip(headers, widths, aligns):
-                pdf.cell(w, 6, str(h), border=1, align=a, fill=True,
+                pdf.cell(w, 6, _lat(h), border=1, align=a, fill=True,
                          new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.ln(6)
             pdf.set_font("helvetica", "", size)
         for ci, (val, w, a) in enumerate(zip(row, widths, aligns)):
             if colors and colors.get((ri, ci)):
                 pdf.set_text_color(*colors[(ri, ci)])
-            pdf.cell(w, 5.6, str(val), border=1, align=a,
+            pdf.cell(w, 5.6, _lat(val), border=1, align=a,
                      new_x=XPos.RIGHT if ci < len(row) - 1 else XPos.LMARGIN,
                      new_y=YPos.TOP if ci < len(row) - 1 else YPos.NEXT)
             pdf.set_text_color(0, 0, 0)
@@ -129,18 +149,34 @@ def _note(pdf, text, kind="info"):
         pdf.set_text_color(*ACCENT)
     pdf.set_font("helvetica", "", 8.5)
     usable = pdf.w - pdf.l_margin - pdf.r_margin
-    pdf.multi_cell(usable, 5, text, border=1, fill=True,
+    pdf.multi_cell(usable, 5, _lat(text), border=1, fill=True,
                    new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(1.5)
 
 
 def _image_if(pdf, path, w=170):
-    if path and Path(path).exists():
-        if pdf.get_y() > pdf.h - 70:
-            pdf.add_page()
-        pdf.image(str(path), w=w)
-        pdf.ln(2)
+    if not (path and Path(path).exists()):
+        return
+    if pdf.page_no() == 0:
+        pdf.add_page()
+    # cap by aspect ratio: a 60-floor elevation PNG is taller than A4 and used
+    # to overflow the page (only the width was given, fpdf2 kept the raw
+    # aspect height). PIL gives true pixel ratio; fallback keeps old behaviour.
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            iw, ih = im.size
+        h = w * ih / iw if iw else 70.0
+    except Exception:
+        h = 70.0
+    max_h = pdf.h - pdf.t_margin - max(pdf.b_margin, 16)   # match auto-break
+    if h > max_h:
+        w, h = w * max_h / h, max_h
+    if pdf.get_y() + h > pdf.h - pdf.b_margin:
+        pdf.add_page()
+    pdf.image(str(path), w=w)
+    pdf.ln(2)
 
 
 def build_report(summary: dict, images: dict, out_pdf: Path) -> Path:

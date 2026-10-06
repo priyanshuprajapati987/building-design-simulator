@@ -62,6 +62,19 @@ def analyze(req: Requirements) -> Requirements:
         w.append(f"invalid zone '{req.seismic_zone}' -> III")
         req.seismic_zone = "III"
 
+    # --- basic wind speed (IS 875 Part 3: 33-55 m/s by zone) ----------------
+    # an explicit override used to bypass validation entirely (vb=0 made every
+    # wind check trivially pass, vb=999 blew up pressures) - range-check it.
+    try:
+        vb_ok = req.vb is not None and 30.0 <= float(req.vb) <= 60.0
+    except (TypeError, ValueError):
+        vb_ok = False
+    if not vb_ok:
+        fallback = float(info["vb"]) if info else 44.0
+        w.append(f"basic wind speed {req.vb!r} m/s outside the IS 875 range "
+                 f"30-60 -> {fallback:g} m/s")
+        req.vb = fallback
+
     # --- soil ---------------------------------------------------------------
     if req.soil_type not in ("I", "II", "III"):
         w.append(f"invalid soil '{req.soil_type}' -> II")

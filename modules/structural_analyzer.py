@@ -243,19 +243,33 @@ def analyze(d: Design, req: Requirements) -> dict:
     gov_foot = max(foot_rows, key=lambda r: r["util"]) if foot_rows else None
 
     # ---- beams -------------------------------------------------------------
-    trib_main = d.bay_x_m / 2 if d.secondary else d.bay_x_m
-    beam_span = (d.bay_x_m + d.bay_y_m) / 2.0
-    w_u_main = 1.5 * (dl + ll_per_floor[0]) * trib_main
-    M_u_main = w_u_main * beam_span ** 2 / 10.0
+    # One-way slab: the load lands on the beams perpendicular to the span
+    # direction, and the slab spans the shorter bay.  Check BOTH grid-beam
+    # orientations and keep the worst - the loaded orientation always
+    # dominates (trib*span^2 = short*long^2 > long*short^2), so the max is
+    # exactly the physical load path and stays conservative for rectangular
+    # GA grids where bay_x != bay_y.  Main beams span the full bay; secondary
+    # beams (mid-bay grid) share the tributary width but span bay/2 between
+    # crossings (matches the generator's _beam_d(bay/2) sizing).
+    w_u_beam = 1.5 * (dl + ll_per_floor[0])
     mu_lim_main = 0.136 * fck * d.beam_w_mm * (d.beam_d_mm - 50) ** 2 / 1e6
-    main_util = M_u_main / mu_lim_main if mu_lim_main else 9.9
+    mu_lim_sec = (0.136 * fck * d.beam_w_mm
+                  * (d.sec_beam_d_mm - 50) ** 2 / 1e6)
+    hx = d.bay_x_m / 2.0 if d.secondary else d.bay_x_m    # trib of Y-beams
+    hy = d.bay_y_m / 2.0 if d.secondary else d.bay_y_m    # trib of X-beams
 
-    sec_util = 0.0
-    if d.secondary:
-        w_u_sec = 1.5 * (dl + ll_per_floor[0]) * (d.bay_x_m / 4.0)
-        M_u_sec = w_u_sec * beam_span ** 2 / 10.0
-        mu_lim_sec = 0.136 * fck * d.beam_w_mm * (d.sec_beam_d_mm - 50) ** 2 / 1e6
-        sec_util = M_u_sec / mu_lim_sec if mu_lim_sec else 9.9
+    def _worst_util(pairs, mu) -> float:
+        if not mu:
+            return 0.0
+        worst = 0.0
+        for trib, span in pairs:
+            worst = max(worst, w_u_beam * trib * span ** 2 / 10.0 / mu)
+        return worst
+
+    main_util = _worst_util(((hx, d.bay_y_m), (hy, d.bay_x_m)), mu_lim_main)
+    sec_util = (_worst_util(((d.bay_x_m / 2.0, d.bay_y_m / 2.0),
+                             (d.bay_y_m / 2.0, d.bay_x_m / 2.0)), mu_lim_sec)
+                if d.secondary else 0.0)
     beam_util = max(main_util, sec_util)
 
     # ---- slab --------------------------------------------------------------
@@ -337,7 +351,8 @@ def analyze(d: Design, req: Requirements) -> dict:
         f"governing section {governing_col[0]}x{governing_col[1]} mm, bottom floor")
     add("Beam moment capacity (max utilisation)", beam_util, "-", "<= 1.00",
         beam_util <= 1.0,
-        f"main beam {d.beam_w_mm}x{d.beam_d_mm} mm, span {beam_span:.1f} m"
+        f"main beam {d.beam_w_mm}x{d.beam_d_mm} mm, "
+        f"span {max(d.bay_x_m, d.bay_y_m):.1f} m"
         + (f"; secondary {d.beam_w_mm}x{d.sec_beam_d_mm}" if d.secondary else ""))
     add("Slab moment capacity (utilisation)", slab_util, "-", "<= 1.00",
         slab_util <= 1.0,

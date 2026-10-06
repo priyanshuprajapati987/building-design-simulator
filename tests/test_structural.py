@@ -54,10 +54,9 @@ def test_k2_interpolation_terrain3():
     assert k2_factor(3, 450) == pytest.approx(1.35)   # above table -> last
 
 
-def test_base_shear_equation():
-    # Ah = (Z/2) * Sa/g * I / R  with Z=0.16, Sa=2.5, I=1, R=5 -> 0.04
-    Z, Sa, I, R = 0.16, 2.5, 1.0, 5.0
-    assert (Z / 2) * Sa * I / R == pytest.approx(0.04)
+# (test_base_shear_equation removed: it asserted a literal identity
+#  (0.16/2)*2.5*1/5 == 0.04 without touching any code under test.
+#  Real base-shear coverage lives in the full-analyse tests below.)
 
 
 # ---------------------------------------------------------------------------

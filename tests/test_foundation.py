@@ -271,6 +271,13 @@ def test_dead_live_split_recorded():
     assert len(dead) == len(grav) == d.floors
     assert all(0 < dd <= g for dd, g in zip(dead, grav))
     assert sum(dead) < sum(grav)               # live load exists on floors
-    # exact dead-load unit weight: slab self + finish + MEP + partition + beam
+    # exact dead-load unit weight - INDEPENDENT oracle straight from
+    # codes.json + slab self (not a re-read of _dead_load itself, which would
+    # only prove the function agrees with its own copy of the formula)
     dl = structural_analyzer._dead_load(req, d)
-    assert dead[0] == pytest.approx(dl * d.plate_sqm, abs=0.15)
+    codes = cfg.get_codes()["dead_load_knm2"]
+    dl_expected = (25.0 * d.slab_t_mm / 1000.0 + codes["floor_finish"]
+                   + codes["mep_ceiling"] + codes["partitions_residential"]
+                   + codes["beam_column_self"])
+    assert dl == pytest.approx(dl_expected)
+    assert dead[0] == pytest.approx(dl_expected * d.plate_sqm, abs=0.15)

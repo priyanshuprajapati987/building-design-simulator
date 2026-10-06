@@ -61,9 +61,27 @@ _UNIT_AREA_KEYS = ("1rk", "1bhk", "2bhk", "3bhk")
 # helpers
 # ---------------------------------------------------------------------------
 
+def _word_re(word: str) -> re.Pattern:
+    """Whole-word match (plural + -ies aware) without the substring traps.
+
+    Letter-class boundaries (not \\b) so "2bhk" still matches "bhk", while
+    "store" no longer matches inside "storey" (that misclassified every
+    "N storey residential building" brief as retail).
+    """
+    w = word.lower()
+    if w.endswith("y") and len(w) > 1 and w[-2] not in "aeiou":
+        stem = re.escape(w[:-1])
+        return re.compile(rf"(?<![A-Za-z]){stem}(?:y|ies)(?![A-Za-z])")
+    return re.compile(rf"(?<![A-Za-z]){re.escape(w)}s?(?![A-Za-z])")
+
+
+def _has_word(text: str, word: str) -> bool:
+    return _word_re(word).search(text) is not None
+
+
 def _find_keyword(text: str, table: list[tuple[Any, tuple[str, ...]]]) -> Any | None:
     for value, words in table:
-        if any(w in text for w in words):
+        if any(_has_word(text, w) for w in words):
             return value
     return None
 
@@ -110,32 +128,35 @@ def parse_text(text: str) -> dict[str, Any]:
     if best_key:
         out["city"] = best_key.title()
 
-    # budget: crore / lakh / rupees
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:crore|cr\b)", t)
+    # budget: crore / lakh / rupees (commas allowed: "1,20,00,000")
+    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:crore|cr\b)", t)
     if m:
         out["budget_crores"] = _to_number(m.group(1))
     else:
-        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:lakh|lac\b|lakhs)", t)
+        m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:lakh|lac\b|lakhs)", t)
         if m:
             out["budget_crores"] = _to_number(m.group(1)) / 100.0
         else:
-            m = re.search(r"(?:budget|cost)[^0-9]{0,20}(?:₹|rs\.?|inr)?\s*(\d{7,10})", t)
-            if m:
+            m = re.search(r"(?:budget|cost)[^0-9]{0,20}(?:₹|rs\.?|inr)?\s*"
+                          r"(\d[\d,]{6,30})", t)
+            if m and 7 <= len(m.group(1).replace(",", "")) <= 10:
                 out["budget_crores"] = _to_number(m.group(1)) / 1e7
 
     # units per floor (plural-only + lookbehind: "G+50 apartment" must NOT
     # set units=50, and "1000 units" must be 1000 not "000" -> 0)
-    m = re.search(r"(?<!\d)(\d{1,4})\s*(?:units|flats|apartments|homes)\b"
+    m = re.search(r"(?<![\d,])(\d[\d,]{0,7})\s*(?:units|flats|apartments|homes)\b"
                   r"(?:\s*(?:per|each|a|every|on each)\s*floor)?", t)
     if (m and ("floor" in t or "storey" in t or "unit" in t or "flat" in t)) or (m and out.get("building_type") == "residential"):
-        out["units_per_floor"] = int(m.group(1))
+        val = _to_number(m.group(1))
+        if val == int(val):
+            out["units_per_floor"] = int(val)
 
-    # land area
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*feet)", t)
+    # land area (commas allowed: "1,200 sqft")
+    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*feet)", t)
     if m:
         out["land_area_sqft"] = _to_number(m.group(1))
     else:
-        m = re.search(r"(\d+(?:\.\d+)?)\s*acres?\b", t)
+        m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*acres?\b", t)
         if m:
             out["land_area_sqft"] = _to_number(m.group(1)) * 43560.0
 
@@ -172,7 +193,7 @@ def parse_text(text: str) -> dict[str, Any]:
 def _find_all_special(t: str) -> list[str]:
     found: list[str] = []
     for value, words in _SPECIAL_KEYWORDS:
-        if any(w in t for w in words):
+        if any(_has_word(t, w) for w in words):
             found.append(value)
     return found
 
@@ -238,11 +259,19 @@ def parse_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load(text: str | None = None, data: dict | None = None) -> Requirements:
-    """Build Requirements from free text and/or a structured dict (dict wins)."""
+    """Build Requirements from free text and/or a structured dict (dict wins).
+
+    ``special`` is the exception: text- and form-sourced specials are UNIONED
+    so a form checkbox (e.g. solar panels) can only ADD to the brief, never
+    silently replace it."""
     fields: dict[str, Any] = {}
     if text:
         fields.update(parse_text(text))
     if data:
-        fields.update(parse_dict(data))
+        d = parse_dict(data)
+        if "special" in fields and "special" in d:
+            d["special"] = list(dict.fromkeys([*fields["special"],
+                                               *d["special"]]))
+        fields.update(d)
     known = {k: v for k, v in fields.items() if k in _ALLOWED_KEYS and v is not None}
     return Requirements(**known)
